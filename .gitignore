@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+*.spec
+
+# Virtual environment
+venv/
+env/
+.venv/
+.env/
+
+# Test logs (runtime-generated)
+logs/*.csv
+logs/*.json
+
+# IDE / OS
+.vscode/
+.idea/
+*.suo
+*.user
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Secrets / config overrides
+*.env
+config_local.py

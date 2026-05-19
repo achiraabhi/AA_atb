@@ -1,17 +1,22 @@
-# Transformer Post-Assembly Test Bench (ATB)
+# After-Assembling Test Bench (ATB)
 
-Industrial-grade desktop application for automated no-load testing of assembled transformers.
+Industrial-grade desktop application for automated no-load testing of assembled transformers.  
+Built with Python + CustomTkinter. Runs fully in mock mode — no hardware required to develop or demo.
+
+---
 
 ## Features
 
-- **JSON-driven transformer configuration** — add transformers without code changes
-- **Dynamic diagram renderer** — canvas-based, fully programmatic coil drawings with polarity dots, pins, taps, voltage labels
-- **Real-time animation** — active windings glow, current-flow particles animate, pins pulse, PASS/FAIL flash
-- **Automated test sequencer** — reads test definitions, switches relays, waits stabilization, reads voltage, compares with tolerance
-- **AUTO / MANUAL mode** — full auto sequence or step-by-step manual control
-- **Hardware abstraction layer** — mock hardware included; swap in real drivers without touching UI
-- **CSV + JSON test logging** — timestamped results per session
-- **In-app transformer editor** — JSON editor dialog to add/edit transformer configs at runtime
+| Feature | Details |
+|---------|---------|
+| **Visual transformer builder** | Canvas-primary editor — drag, right-click, click nodes to assign relays |
+| **34-relay board support** | RL1–16 (voltmeter +), RL17–32 (voltmeter −), RL33/34 gates |
+| **Dual serial communication** | Separate ports for relay MCU and external voltage meter |
+| **Auto-matrix test engine** | Derives full measurement sweep from topology — no hardcoded sequences |
+| **Animated diagram** | Live coil glow, current-flow particles, per-tap highlighting, PASS/FAIL flash |
+| **AUTO / MANUAL / STEP mode** | Full auto, manual gate, or single-step advance |
+| **Mock hardware** | Full simulation with no physical hardware required |
+| **CSV + JSON logging** | Timestamped results per session, viewable in-app |
 
 ---
 
@@ -19,37 +24,48 @@ Industrial-grade desktop application for automated no-load testing of assembled 
 
 ```
 AA_atb/
-├── main.py                     Entry point
+├── main.py                         Entry point
 ├── requirements.txt
 │
-├── ui/
-│   ├── main_window.py          Root CTk window, layout, menu
-│   ├── transformer_canvas.py   Animated diagram widget
-│   ├── control_panel.py        Buttons, relay grid, progress bar
-│   ├── status_panel.py         Live measurement cards, history table
-│   └── dialogs.py              Add transformer, view logs, about
-│
 ├── core/
-│   ├── config_loader.py        JSON scanner / validator / parser
-│   ├── state_manager.py        Observable state store (thread-safe)
-│   ├── sequence_manager.py     Resolves relay assignments per step
-│   ├── test_engine.py          Background test orchestrator
-│   ├── transformer_renderer.py Canvas drawing + animation engine
-│   └── logger.py               CSV/JSON logging + console feed
+│   ├── config_loader.py            JSON scanner / parser / dataclasses
+│   ├── state_manager.py            Thread-safe observable state store
+│   ├── sequence_manager.py         Resolves test steps from config
+│   ├── test_engine.py              Background test orchestrator (threading)
+│   ├── measurement_matrix_engine.py Auto-generates measurement sweep from topology
+│   ├── transformer_renderer.py     Canvas drawing + animation engine
+│   ├── validator.py                Config validation (errors / warnings / info)
+│   └── logger.py                   CSV/JSON logging + console feed
 │
 ├── hardware/
-│   ├── hardware_interface.py   Abstract base classes (ABCs)
-│   ├── mock_hardware.py        Simulated relay + ADC hardware
-│   ├── relay_controller.py     (placeholder for real driver)
-│   └── voltage_reader.py       (placeholder for real driver)
+│   ├── hardware_interface.py       Abstract base classes (ABCs) + relay constants
+│   ├── protocol.py                 Serial message builders + constants (RL1–RL34)
+│   ├── relay_serial.py             Relay MCU serial driver (thread-safe)
+│   ├── voltage_meter_serial.py     Continuous-stream voltage reader (background thread)
+│   ├── relay_controller.py         Full real relay controller with safety enforcement
+│   ├── routing_engine.py           Maps winding/tap pairs → [relay_a, relay_b, 33, 34]
+│   ├── measurement_manager.py      relay-switch → stabilize → sample → average cycle
+│   ├── serial_manager.py           Lifecycle manager for both serial connections
+│   └── mock_hardware.py            Simulated relay board + voltage meter
+│
+├── ui/
+│   ├── main_window.py              Root CTk window, layout, menu bar
+│   ├── visual_editor.py            Visual canvas transformer builder (primary editor)
+│   ├── editor_window.py            Legacy form-based editor (kept for reference)
+│   ├── transformer_canvas.py       Animated diagram widget (main window)
+│   ├── control_panel.py            Relay grid, test controls, progress
+│   ├── status_panel.py             Live measurement cards, history table
+│   └── dialogs.py                  Add transformer, view logs, about
 │
 ├── transformers/
-│   ├── transformer_a.json      GE Healthcare 115/115V isolation
-│   ├── transformer_b.json      Multi-tap 230/115/24V
-│   └── transformer_c.json      Toroidal audio 240/2×12V
+│   ├── transformer_a.json          GE Healthcare 115/115V isolation
+│   ├── transformer_b.json          Multi-tap 200–250V / 115V
+│   ├── transformer_c.json          Toroidal audio 240V / 2×12V
+│   ├── transformer_d.json          Center-tap secondary 230V / 0-12-0V
+│   └── new_transformer.json        Example / template
 │
-├── assets/                     (icons, fonts — future use)
-└── logs/                       Auto-created; CSV + JSON results
+├── assets/                         Icons, fonts (future use)
+└── logs/                           Auto-created; CSV + JSON test results
 ```
 
 ---
@@ -62,147 +78,148 @@ AA_atb/
 pip install -r requirements.txt
 ```
 
+> `pyserial` is optional — the app runs in mock mode if no serial hardware is connected.
+
 ### 2. Run the application
 
 ```bash
 python main.py
 ```
 
+The app starts in **mock mode** — no relay board or voltage meter required.
+
 ### 3. Run a test
 
 1. Select a transformer from the top dropdown
 2. Enter operator name
 3. Click **▶ START TEST** (AUTO mode)
-4. Watch the diagram animate and results populate
+4. Watch the diagram animate and results populate in the status panel
 
 ---
 
-## Adding a New Transformer
+## Visual Transformer Builder
 
-### Option A — UI Editor (no code required)
+Open via **File → New Transformer (Editor)** or the **✎ Editor** button in the toolbar.
 
-1. Menu → **File → Add Transformer…**
-2. Edit the JSON template in the editor
-3. Click **Validate** then **Save**
-4. The new transformer appears in the selector immediately
+The canvas IS the editor — no forms required:
 
-### Option B — JSON File
+| Action | How |
+|--------|-----|
+| Add winding | Toolbar `[+ Primary]` / `[+ Secondary]` buttons |
+| Select & edit | Left-click any winding → property panel opens on right |
+| Assign relay | Left-click any pin or tap node → relay picker popup |
+| Add tap | Right-click winding → **Add Tap**, or use the property panel |
+| Reorder windings | Drag the `≡` handle above each winding |
+| Context menu | Right-click winding, tap, pin, or canvas background |
+| Validate | Toolbar `[✔ Validate]` — shows overlay markers + popup |
+| Simulate | Toolbar `[▶ Simulate]` — animates measurement paths |
+| Save | Toolbar `[💾 Save]` — writes JSON to `transformers/` folder |
 
-Create a `.json` file in the `transformers/` folder:
+---
 
-```json
-{
-  "name": "My Transformer",
-  "transformer_id": "my_transformer_001",
-  "type": "isolating_transformer",
-  "rated_power_va": 250,
-  "rated_frequency_hz": 50,
+## Hardware Architecture
 
-  "primary": [
-    {
-      "id": "P1",
-      "start_pin": 1,
-      "end_pin": 2,
-      "voltage": 230,
-      "dot_polarity": true,
-      "relay_id": 0,
-      "taps": []
-    }
-  ],
+### Relay Board (34 relays)
 
-  "secondary": [
-    {
-      "id": "S1",
-      "start_pin": 5,
-      "end_pin": 6,
-      "voltage": 24,
-      "dot_polarity": true,
-      "relay_id": 1,
-      "taps": []
-    }
-  ],
+| Group | Relays | Function |
+|-------|--------|----------|
+| Side A | RL1 – RL16 | Voltmeter **+** probe selection |
+| Side B | RL17 – RL32 | Voltmeter **−** probe selection |
+| Gate A | RL33 | Auto-closes when any RL1-16 is active |
+| Gate B | RL34 | Auto-closes when any RL17-32 is active |
 
-  "tests": [
-    {
-      "from": "P1",
-      "to": "S1",
-      "expected_voltage": 24.0,
-      "tolerance_percent": 5.0,
-      "measurement_channel": 0,
-      "stabilization_delay_ms": 500,
-      "relay_map": {},
-      "description": "Primary → Secondary 24V check"
-    }
-  ]
-}
-```
+**Safety rule:** max ONE relay from RL1–16 and ONE from RL17–32 active simultaneously. Enforced in software (RelayController) and recommended in MCU firmware.
 
-Then use **File → Reload Transformers**.
+Each measurement step activates exactly **[relay_a, relay_b, RL33, RL34]**.
+
+### Serial Communication
+
+Two independent serial ports:
+
+| Port | Direction | Protocol |
+|------|-----------|----------|
+| **Relay MCU** | PC → MCU | `SET_RELAYS:1,17,33,34\r\n` → `OK\r\n` |
+| **Voltage Meter** | Meter → PC | Continuous `18.42\r\n` or `VOLTAGE:18.42\r\n` |
+
+Configure via **Hardware → Serial Connections…** in the menu.
+
+### Energization
+
+**Energization is external** — the operator applies mains voltage to the primary.  
+The relay board routes only the **voltmeter probes**. No relay controls mains power.
 
 ---
 
 ## Transformer JSON Schema
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `name` | string | Display name |
-| `transformer_id` | string | Unique slug (auto-generated from name if omitted) |
-| `type` | string | Free text type label |
-| `rated_power_va` | number | Rated power in VA |
-| `rated_frequency_hz` | number | Rated frequency |
-| `primary` | array | Primary winding definitions |
-| `secondary` | array | Secondary winding definitions |
-| `tests` | array | Test step definitions |
-
-### Winding object
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string | Winding ID, e.g. `"P1"`, `"S2"` |
-| `start_pin` | int | Pin number at top of winding |
-| `end_pin` | int | Pin number at bottom of winding |
-| `voltage` | float | Rated voltage |
-| `dot_polarity` | bool | Show IEC polarity dot on start_pin side |
-| `relay_id` | int | Relay channel that energizes this winding |
-| `taps` | array | Intermediate tap points (optional) |
-
-### Tap object
+### Winding fields
 
 ```json
-{ "pin": 2, "position_frac": 0.5, "voltage": 115 }
+{
+  "id": "P1",
+  "winding_type": "basic_winding",
+  "start_pin": 1,
+  "end_pin": 2,
+  "voltage": 230,
+  "dot_polarity": true,
+  "relay_a": 1,
+  "relay_b": null,
+  "meas_channel": -1,
+  "taps": []
+}
 ```
 
-`position_frac`: 0.0 = top of winding, 1.0 = bottom.
+| Field | Description |
+|-------|-------------|
+| `relay_a` | RL1–16 — connects `start_pin` to voltmeter **+** bus |
+| `relay_b` | RL17–32 — connects `end_pin` to voltmeter **−** bus |
+| `meas_channel` | Legacy ADC channel (`-1` = unused) |
 
-### Test step object
+> **Backward compatibility:** old fields `relay_id` → `relay_a`, `end_relay` → `relay_b` are still accepted.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `from` | string | Winding ID to energize |
-| `to` | string | Winding ID to measure |
-| `expected_voltage` | float | Nominal output voltage |
-| `tolerance_percent` | float | Acceptance band (±%) |
-| `measurement_channel` | int | ADC channel to read |
-| `stabilization_delay_ms` | int | Wait time after relay close (ms) |
-| `relay_map` | object | Override relay states: `{"0": true, "1": false}` |
-| `description` | string | Human-readable step description |
+### Tap fields
+
+```json
+{
+  "pin": 5,
+  "voltage": 12,
+  "label": "CT (0V)",
+  "relay_a": 3,
+  "relay_b": 19,
+  "meas_channel": 1
+}
+```
+
+`relay_b` on tap = start→tap measurement (winding.relay_a + tap.relay_b)  
+`relay_a` on tap = tap→end measurement (tap.relay_a + winding.relay_b)
+
+### Auto-matrix
+
+When `auto_matrix.enabled = true`, the test engine auto-generates the full measurement sweep from the topology — no manual test steps required:
+
+```json
+"auto_matrix": {
+  "enabled": true,
+  "energize_winding": "P1",
+  "energize_tap_index": null
+}
+```
 
 ---
 
 ## Connecting Real Hardware
 
-1. Create a class in `hardware/` that subclasses `RelayControllerInterface`
-   and `VoltageReaderInterface` from `hardware/hardware_interface.py`
-2. Implement all abstract methods
-3. In `main.py`, replace `MockHardwareManager()` with your real manager
+1. **Relay MCU**: Hardware → Serial Connections… → set port + baud (default 115200) → Connect
+2. **Voltage Meter**: Same dialog → set meter port + baud (default 9600) → Connect
 
-The UI and test engine require zero changes.
+The serial drivers (`relay_serial.py`, `voltage_meter_serial.py`) degrade gracefully — if `pyserial` is not installed or the port fails, the app continues in mock mode.
 
 ---
 
 ## Test Logs
 
-Logs are saved to `logs/` as:
+Saved to `logs/` (auto-created):
+
 - `<transformer_id>_<YYYYMMDD_HHMMSS>.csv`
 - `<transformer_id>_<YYYYMMDD_HHMMSS>.json`
 
@@ -210,12 +227,9 @@ View in-app: **File → View Logs…**
 
 ---
 
-## Future Expansion
+## Development Notes
 
-The architecture supports:
-- Database backend (replace logger CSV with SQLAlchemy)
-- Barcode scanner (add serial reader, set operator/transformer from scan)
-- PDF reports (use ReportLab, attach to session end)
-- Remote monitoring (WebSocket server on state_manager events)
-- SCADA integration (Modbus TCP server wrapping relay/voltage interfaces)
-- Calibration routines (new test type in sequence_manager)
+- **Zero hardware required** — `MockHardwareManager` simulates relays + voltage meter
+- **Thread safety** — serial drivers use `threading.Lock`; all UI updates via `canvas.after(0, ...)`
+- **Config-driven** — routing is derived purely from JSON topology; no hardcoded test sequences
+- **Extensible** — subclass `RelayControllerInterface` / `VoltageReaderInterface` for custom hardware
