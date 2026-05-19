@@ -1,0 +1,124 @@
+{
+  "name": "New Transformer",
+  "transformer_id": "new_transformer",
+  "type": "isolating_transformer",
+  "rated_power_va": 100.0,
+  "rated_frequency_hz": 50.0,
+  "notes": "",
+  "primary": [
+    {
+      "id": "P1",
+      "winding_type": "basic_winding",
+      "start_pin": 1,
+      "end_pin": 2,
+      "voltage": 230.0,
+      "dot_polarity": true,
+      "relay_id": 0,
+      "end_relay": null,
+      "meas_channel": -1,
+      "taps": [
+        {
+          "pin": 0,
+          "voltage": 0.0,
+          "label": ""
+        },
+        {
+          "pin": 0,
+          "voltage": 0.0,
+          "label": ""
+        }
+      ],
+      "coords": {}
+    },
+    {
+      "id": "P2",
+      "winding_type": "basic_winding",
+      "start_pin": 3,
+      "end_pin": 4,
+      "voltage": 230.0,
+      "dot_polarity": true,
+      "relay_id": 1,
+      "end_relay": null,
+      "meas_channel": -1,
+      "taps": [
+        {
+          "pin": 0,
+          "voltage": 0.0,
+          "label": ""
+        }
+      ],
+      "coords": {}
+    },
+    {
+      "id": "P3",
+      "winding_type": "basic_winding",
+      "start_pin": 5,
+      "end_pin": 6,
+      "voltage": 230.0,
+      "dot_polarity": true,
+      "relay_id": 2,
+      "end_relay": null,
+      "meas_channel": -1,
+      "taps": [],
+      "coords": {}
+    }
+  ],
+  "secondary": [
+    {
+      "id": "S1",
+      "winding_type": "basic_winding",
+      "start_pin": 7,
+      "end_pin": 8,
+      "voltage": 115.0,
+      "dot_polarity": true,
+      "relay_id": 1,
+      "end_relay": null,
+      "meas_channel": 0,
+      "taps": [
+        {
+          "pin": 0,
+          "voltage": 0.0,
+          "label": ""
+        },
+        {
+          "pin": 0,
+          "voltage": 0.0,
+          "label": ""
+        },
+        {
+          "pin": 0,
+          "voltage": 0.0,
+          "label": ""
+        }
+      ],
+      "coords": {}
+    }
+  ],
+  "tests": [
+    {
+      "from": "P1",
+      "to": "S1",
+      "expected_voltage": 115.0,
+      "tolerance_percent": 5.0,
+      "measurement_channel": 0,
+      "stabilization_delay_ms": 500,
+      "relay_map": {},
+      "description": "Primary \u2192 Secondary"
+    },
+    {
+      "from": "",
+      "to": "",
+      "expected_voltage": 0.0,
+      "tolerance_percent": 5.0,
+      "measurement_channel": 0,
+      "stabilization_delay_ms": 500,
+      "relay_map": {},
+      "description": ""
+    }
+  ],
+  "auto_matrix": {
+    "enabled": false,
+    "energize_winding": "P1",
+    "energize_tap_index": null
+  }
+}

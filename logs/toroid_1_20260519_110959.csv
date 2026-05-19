@@ -1,0 +1,1 @@
+timestamp,transformer_id,operator,step,from_winding,to_winding,measured_v,expected_v,tolerance_pct,deviation_pct,result,error

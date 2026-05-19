@@ -1,0 +1,4 @@
+timestamp,transformer_id,operator,step,from_winding,to_winding,measured_v,expected_v,tolerance_pct,deviation_pct,result,error
+2026-05-18T12:14:36.018360,multi_tap_230_115_24,TestUser,1,P1,S1,116.205,115.000,5.0,1.05,PASS,
+2026-05-18T12:14:36.983579,multi_tap_230_115_24,TestUser,2,P1,S2,23.896,24.000,5.0,0.43,PASS,
+2026-05-18T12:14:37.952197,multi_tap_230_115_24,TestUser,3,P1,S1,57.727,57.500,5.0,0.39,PASS,

@@ -1,0 +1,2 @@
+timestamp,transformer_id,operator,step,from_winding,to_winding,measured_v,expected_v,tolerance_pct,deviation_pct,result,error
+2026-05-18T14:55:40.914691,new_transformer,Unknown,1,P1,S1,113.470,115.000,5.0,1.33,PASS,

@@ -1,0 +1,95 @@
+{
+  "transformer_id": "multi_tap_200_250",
+  "operator": "Unknown",
+  "start_time": "2026-05-19T14:05:37.160231",
+  "end_time": "2026-05-19T14:05:44.324110",
+  "overall_result": "PASS",
+  "total_steps": 7,
+  "passed_steps": 7,
+  "steps": [
+    {
+      "step": 1,
+      "from": "P1",
+      "to": "P1",
+      "measured_v": 202.948,
+      "expected_v": 200.0,
+      "tolerance_pct": 5.0,
+      "deviation_pct": 1.47,
+      "result": "PASS",
+      "timestamp": "2026-05-19T14:05:37.787546",
+      "error": null
+    },
+    {
+      "step": 2,
+      "from": "P1",
+      "to": "P1",
+      "measured_v": 210.345,
+      "expected_v": 208.0,
+      "tolerance_pct": 5.0,
+      "deviation_pct": 1.13,
+      "result": "PASS",
+      "timestamp": "2026-05-19T14:05:38.800328",
+      "error": null
+    },
+    {
+      "step": 3,
+      "from": "P1",
+      "to": "P1",
+      "measured_v": 216.899,
+      "expected_v": 220.0,
+      "tolerance_pct": 5.0,
+      "deviation_pct": 1.41,
+      "result": "PASS",
+      "timestamp": "2026-05-19T14:05:39.818447",
+      "error": null
+    },
+    {
+      "step": 4,
+      "from": "P1",
+      "to": "P1",
+      "measured_v": 239.946,
+      "expected_v": 240.0,
+      "tolerance_pct": 5.0,
+      "deviation_pct": 0.02,
+      "result": "PASS",
+      "timestamp": "2026-05-19T14:05:40.843086",
+      "error": null
+    },
+    {
+      "step": 5,
+      "from": "P1",
+      "to": "P1",
+      "measured_v": 253.028,
+      "expected_v": 250.0,
+      "tolerance_pct": 5.0,
+      "deviation_pct": 1.21,
+      "result": "PASS",
+      "timestamp": "2026-05-19T14:05:41.865273",
+      "error": null
+    },
+    {
+      "step": 6,
+      "from": "P1",
+      "to": "S1",
+      "measured_v": 115.601,
+      "expected_v": 115,
+      "tolerance_pct": 5.0,
+      "deviation_pct": 0.52,
+      "result": "PASS",
+      "timestamp": "2026-05-19T14:05:42.887089",
+      "error": null
+    },
+    {
+      "step": 7,
+      "from": "P1",
+      "to": "S2",
+      "measured_v": 24.295,
+      "expected_v": 24,
+      "tolerance_pct": 5.0,
+      "deviation_pct": 1.23,
+      "result": "PASS",
+      "timestamp": "2026-05-19T14:05:43.899673",
+      "error": null
+    }
+  ]
+}

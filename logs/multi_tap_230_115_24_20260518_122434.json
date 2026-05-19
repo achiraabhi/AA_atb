@@ -1,0 +1,47 @@
+{
+  "transformer_id": "multi_tap_230_115_24",
+  "operator": "Unknown",
+  "start_time": "2026-05-18T12:24:34.432387",
+  "end_time": "2026-05-18T12:24:37.464215",
+  "overall_result": "PASS",
+  "total_steps": 3,
+  "passed_steps": 3,
+  "steps": [
+    {
+      "step": 1,
+      "from": "P1",
+      "to": "S1",
+      "measured_v": 115.932,
+      "expected_v": 115.0,
+      "tolerance_pct": 5.0,
+      "deviation_pct": 0.81,
+      "result": "PASS",
+      "timestamp": "2026-05-18T12:24:35.039811",
+      "error": null
+    },
+    {
+      "step": 2,
+      "from": "P1",
+      "to": "S2",
+      "measured_v": 24.846,
+      "expected_v": 24.0,
+      "tolerance_pct": 5.0,
+      "deviation_pct": 3.53,
+      "result": "PASS",
+      "timestamp": "2026-05-18T12:24:36.040625",
+      "error": null
+    },
+    {
+      "step": 3,
+      "from": "P1",
+      "to": "S1",
+      "measured_v": 57.135,
+      "expected_v": 57.5,
+      "tolerance_pct": 5.0,
+      "deviation_pct": 0.63,
+      "result": "PASS",
+      "timestamp": "2026-05-18T12:24:37.044011",
+      "error": null
+    }
+  ]
+}

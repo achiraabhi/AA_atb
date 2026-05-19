@@ -1,0 +1,23 @@
+{
+  "transformer_id": "new_transformer",
+  "operator": "Unknown",
+  "start_time": "2026-05-19T08:28:10.168887",
+  "end_time": "2026-05-19T08:28:18.426619",
+  "overall_result": "PASS",
+  "total_steps": 1,
+  "passed_steps": 1,
+  "steps": [
+    {
+      "step": 1,
+      "from": "P1",
+      "to": "S1",
+      "measured_v": 116.279,
+      "expected_v": 115.0,
+      "tolerance_pct": 5.0,
+      "deviation_pct": 1.11,
+      "result": "PASS",
+      "timestamp": "2026-05-19T08:28:10.784368",
+      "error": null
+    }
+  ]
+}

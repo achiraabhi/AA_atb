@@ -1,0 +1,23 @@
+{
+  "transformer_id": "ge_healthcare_iso_115",
+  "operator": "Unknown",
+  "start_time": "2026-05-18T12:21:53.592299",
+  "end_time": "2026-05-18T12:21:54.832703",
+  "overall_result": "PASS",
+  "total_steps": 1,
+  "passed_steps": 1,
+  "steps": [
+    {
+      "step": 1,
+      "from": "P1",
+      "to": "S1",
+      "measured_v": 114.404,
+      "expected_v": 115.0,
+      "tolerance_pct": 5.0,
+      "deviation_pct": 0.52,
+      "result": "PASS",
+      "timestamp": "2026-05-18T12:21:54.312681",
+      "error": null
+    }
+  ]
+}

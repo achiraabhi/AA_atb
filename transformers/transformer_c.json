@@ -1,0 +1,92 @@
+{
+  "name": "Toroidal Audio Transformer 240/2x12V",
+  "transformer_id": "toroidal_audio_240_2x12",
+  "type": "toroidal_transformer",
+  "rated_power_va": 200,
+  "rated_frequency_hz": 50,
+  "notes": "Dual secondary toroidal transformer for audio amplifier PSU",
+
+  "primary": [
+    {
+      "id": "P1",
+      "winding_type": "basic_winding",
+      "start_pin": 1,
+      "end_pin": 2,
+      "voltage": 240,
+      "dot_polarity": true,
+      "relay_a": 1,
+      "relay_b": 17,
+      "meas_channel": -1,
+      "taps": [],
+      "coords": {}
+    }
+  ],
+
+  "secondary": [
+    {
+      "id": "S1",
+      "winding_type": "basic_winding",
+      "start_pin": 4,
+      "end_pin": 5,
+      "voltage": 12,
+      "dot_polarity": true,
+      "relay_a": 2,
+      "relay_b": 18,
+      "meas_channel": 0,
+      "taps": [],
+      "coords": {}
+    },
+    {
+      "id": "S2",
+      "winding_type": "basic_winding",
+      "start_pin": 6,
+      "end_pin": 7,
+      "voltage": 12,
+      "dot_polarity": false,
+      "relay_a": 3,
+      "relay_b": 19,
+      "meas_channel": 1,
+      "taps": [],
+      "coords": {}
+    }
+  ],
+
+  "tests": [
+    {
+      "from": "P1",
+      "to": "S1",
+      "expected_voltage": 12.0,
+      "tolerance_percent": 4.0,
+      "measurement_channel": 0,
+      "stabilization_delay_ms": 400,
+      "relay_map": { "2": true, "18": true, "33": true, "34": true },
+      "description": "Primary 240V → Secondary winding 1 (12V)"
+    },
+    {
+      "from": "P1",
+      "to": "S2",
+      "expected_voltage": 12.0,
+      "tolerance_percent": 4.0,
+      "measurement_channel": 1,
+      "stabilization_delay_ms": 400,
+      "relay_map": { "3": true, "19": true, "33": true, "34": true },
+      "description": "Primary 240V → Secondary winding 2 (12V)"
+    },
+    {
+      "from": "S1",
+      "to": "S2",
+      "expected_voltage": 24.0,
+      "tolerance_percent": 4.0,
+      "measurement_channel": 2,
+      "stabilization_delay_ms": 400,
+      "relay_map": { "2": true, "19": true, "33": true, "34": true },
+      "description": "S1+S2 series check: 24V centre-tapped output"
+    }
+  ],
+
+  "auto_matrix": {
+    "enabled": true,
+    "energize_winding": "P1",
+    "energize_tap_index": null
+  }
+}

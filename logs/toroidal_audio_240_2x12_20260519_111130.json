@@ -1,0 +1,35 @@
+{
+  "transformer_id": "toroidal_audio_240_2x12",
+  "operator": "Unknown",
+  "start_time": "2026-05-19T11:11:30.005080",
+  "end_time": "2026-05-19T11:11:32.066338",
+  "overall_result": "PASS",
+  "total_steps": 2,
+  "passed_steps": 2,
+  "steps": [
+    {
+      "step": 1,
+      "from": "P1",
+      "to": "S1",
+      "measured_v": 11.713,
+      "expected_v": 12,
+      "tolerance_pct": 5.0,
+      "deviation_pct": 2.39,
+      "result": "PASS",
+      "timestamp": "2026-05-19T11:11:30.628589",
+      "error": null
+    },
+    {
+      "step": 2,
+      "from": "P1",
+      "to": "S2",
+      "measured_v": 12.17,
+      "expected_v": 12,
+      "tolerance_pct": 5.0,
+      "deviation_pct": 1.42,
+      "result": "PASS",
+      "timestamp": "2026-05-19T11:11:31.642570",
+      "error": null
+    }
+  ]
+}
