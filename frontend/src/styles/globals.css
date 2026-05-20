@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    background-color: #0d1117;
+    color: #e2e8f0;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track { background: #0d1117; }
+  ::-webkit-scrollbar-thumb { background: #2a3448; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a4560; }
+
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    opacity: 0.4;
+  }
+}
+
+@layer utilities {
+  .text-glow { color: #00ff88; }
+  .text-accent { color: #00e5ff; }
+  .text-muted { color: #64748b; }
+  .text-warning { color: #f59e0b; }
+  .text-danger { color: #ef4444; }
+  .text-success { color: #22c55e; }
+
+  .bg-surface { background-color: #0d1117; }
+  .bg-panel   { background-color: #161b22; }
+  .bg-card    { background-color: #1c2230; }
+  .bg-muted   { background-color: #3a4560; }
+
+  .border-border { border-color: #2a3448; }
+  .border-glow   { border-color: #00ff88; }
+  .border-accent { border-color: #00e5ff; }
+  .border-danger { border-color: #ef4444; }
+  .border-primary { border-color: #1a6fd4; }
+
+  .bg-glow    { background-color: #00ff88; }
+  .bg-accent  { background-color: #00e5ff; }
+  .bg-danger  { background-color: #ef4444; }
+  .bg-primary { background-color: #1a6fd4; }
+  .bg-warning { background-color: #f59e0b; }
+  .bg-success { background-color: #22c55e; }
+
+  .shadow-glow   { box-shadow: 0 0 12px rgba(0,255,136,0.4); }
+  .shadow-accent { box-shadow: 0 0 12px rgba(0,229,255,0.3); }
+  .shadow-danger { box-shadow: 0 0 12px rgba(239,68,68,0.4); }
+}
+
+/* Konva stage cursor */
+.konvajs-content canvas {
+  cursor: default;
+}
