@@ -26,6 +26,8 @@ def _get(request: Request, attr: str) -> Any:
 class StartTestRequest(BaseModel):
     operator: str = ""
     mode: str = "AUTO"
+    excitation_winding_id: Optional[str] = None
+    applied_voltage: Optional[float] = None
 
 
 class SelectTransformerRequest(BaseModel):
@@ -110,6 +112,10 @@ def get_state(request: Request):
         "current_measurement":   sm.current_measurement,
         "current_expected":      sm.current_expected,
         "current_tolerance":     sm.current_tolerance,
+        "excitation_winding_id":      sm.excitation_winding_id,
+        "applied_voltage":            sm.applied_voltage,
+        "nominal_excitation_voltage": sm.nominal_excitation_voltage,
+        "ratio_factor":               sm.ratio_factor,
         "session": {
             "transformer_id": session.transformer_id,
             "operator":       session.operator,
@@ -119,6 +125,24 @@ def get_state(request: Request):
             "overall_pass":   session.overall_pass,
         } if session else None,
     }
+
+
+@router.get("/transformers/{transformer_id}/windings")
+def get_windings(transformer_id: str, request: Request):
+    """Return the flat winding list for excitation winding selection."""
+    cfg = _get(request, "config_loader")
+    tc  = cfg.get_transformer(transformer_id)
+    if tc is None:
+        raise HTTPException(404, f"Transformer '{transformer_id}' not found")
+    return [
+        {
+            "id":              w.id,
+            "nominal_voltage": w.nominal_voltage,
+            "can_energize":    w.can_energize,
+            "side":            "primary" if w in tc.primary else "secondary",
+        }
+        for w in tc.windings
+    ]
 
 
 @router.get("/relays")
@@ -149,7 +173,11 @@ def start_test(body: StartTestRequest, request: Request):
         sm.test_mode = TestMode.AUTO
     if body.operator:
         sm.operator_name = body.operator
-    eng.start(operator=body.operator)
+    eng.start(
+        operator=body.operator,
+        excitation_winding_id=body.excitation_winding_id,
+        applied_voltage=body.applied_voltage,
+    )
     return {"started": True}
 
 
@@ -186,6 +214,47 @@ def emergency_stop(request: Request):
     eng = _get(request, "test_engine")
     eng.emergency_stop()
     return {"emergency_stop": True}
+
+
+class SkipUnitRequest(BaseModel):
+    reason: str = ""
+
+
+@router.post("/test/next-unit")
+def next_unit(request: Request):
+    eng = _get(request, "test_engine")
+    eng.next_unit()
+    return {"next_unit": True}
+
+
+@router.post("/test/skip-unit")
+def skip_unit(body: SkipUnitRequest, request: Request):
+    eng = _get(request, "test_engine")
+    eng.skip_unit(reason=body.reason)
+    return {"skipped": True}
+
+
+@router.post("/test/retry-unit")
+def retry_unit(request: Request):
+    eng = _get(request, "test_engine")
+    eng.retry_unit()
+    return {"retry": True}
+
+
+@router.post("/test/complete-batch")
+def complete_batch(request: Request):
+    eng = _get(request, "test_engine")
+    eng.complete_batch()
+    return {"completed": True}
+
+
+@router.get("/batch/state")
+def get_batch_state(request: Request):
+    sm = _get(request, "state_manager")
+    batch = sm.batch_session
+    if batch is None:
+        return {"active": False}
+    return batch.to_summary(active=True)
 
 
 # ── hardware status ───────────────────────────────────────────────────────────

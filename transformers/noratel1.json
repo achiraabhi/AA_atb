@@ -1,0 +1,245 @@
+{
+  "name": "noratel1",
+  "transformer_id": "noratel1",
+  "type": "unknown",
+  "rated_power_va": 230,
+  "rated_frequency_hz": 50,
+  "notes": "",
+  "auto_matrix": {
+    "enabled": true,
+    "energize_winding": "P1"
+  },
+  "primary": [
+    {
+      "id": "P1",
+      "winding_type": "basic_winding",
+      "start_pin": 1,
+      "end_pin": 2,
+      "voltage": 230,
+      "dot_polarity": true,
+      "relay_a": null,
+      "relay_b": null,
+      "meas_channel": -1,
+      "taps": [],
+      "coords": {}
+    },
+    {
+      "id": "P2",
+      "winding_type": "basic_winding",
+      "start_pin": 3,
+      "end_pin": 4,
+      "voltage": 230,
+      "dot_polarity": true,
+      "relay_a": null,
+      "relay_b": null,
+      "meas_channel": -1,
+      "taps": [],
+      "coords": {}
+    }
+  ],
+  "secondary": [
+    {
+      "id": "S1",
+      "winding_type": "basic_winding",
+      "start_pin": 100,
+      "end_pin": 101,
+      "voltage": 115,
+      "dot_polarity": true,
+      "relay_a": null,
+      "relay_b": null,
+      "meas_channel": -1,
+      "taps": [
+        {
+          "pin": 0,
+          "voltage": 0,
+          "label": "T1",
+          "relay_a": null,
+          "relay_b": null
+        },
+        {
+          "pin": 0,
+          "voltage": 0,
+          "label": "T2",
+          "relay_a": null,
+          "relay_b": null
+        }
+      ],
+      "coords": {}
+    },
+    {
+      "id": "S3",
+      "winding_type": "basic_winding",
+      "start_pin": 104,
+      "end_pin": 105,
+      "voltage": 115,
+      "dot_polarity": true,
+      "relay_a": null,
+      "relay_b": null,
+      "meas_channel": -1,
+      "taps": [
+        {
+          "pin": 0,
+          "voltage": 0,
+          "label": "T1",
+          "relay_a": null,
+          "relay_b": null
+        },
+        {
+          "pin": 0,
+          "voltage": 0,
+          "label": "T2",
+          "relay_a": null,
+          "relay_b": null
+        }
+      ],
+      "coords": {}
+    }
+  ],
+  "tests": [],
+  "ratio_rules": [
+    {
+      "id": "a6u8o2kp8",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "P2",
+        "node_b": "P2:end",
+        "nominal_voltage": 230
+      },
+      "tolerance_percent": 10,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true
+    },
+    {
+      "id": "0w2oocep7",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S1",
+        "node_b": "S1:end",
+        "nominal_voltage": 115
+      },
+      "tolerance_percent": 10,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true
+    },
+    {
+      "id": "35rqd629f",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S1",
+        "node_b": "S1:tap0",
+        "nominal_voltage": 115
+      },
+      "tolerance_percent": 10,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true
+    },
+    {
+      "id": "9hxmee1i8",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S1",
+        "node_b": "S1:tap1",
+        "nominal_voltage": 115
+      },
+      "tolerance_percent": 10,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true
+    },
+    {
+      "id": "opdjcevix",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S1",
+        "node_b": "S1:end",
+        "nominal_voltage": 115
+      },
+      "tolerance_percent": 10,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true
+    },
+    {
+      "id": "hni55af7t",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S3",
+        "node_b": "S3:tap0",
+        "nominal_voltage": 115
+      },
+      "tolerance_percent": 10,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true
+    },
+    {
+      "id": "pb3ex8wsr",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S3",
+        "node_b": "S3:tap1",
+        "nominal_voltage": 115
+      },
+      "tolerance_percent": 10,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true
+    },
+    {
+      "id": "5llozcbnh",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S3",
+        "node_b": "S3:end",
+        "nominal_voltage": 115
+      },
+      "tolerance_percent": 10,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true
+    }
+  ]
+}

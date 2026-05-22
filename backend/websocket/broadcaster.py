@@ -8,13 +8,16 @@ import asyncio
 import logging
 from typing import Optional
 
-from core.state_manager import StateManager, AppState, TestStepResult, TestSession
+from core.state_manager import StateManager, AppState, TestStepResult, TestSession, UnitResult
 from backend.websocket.manager import WebSocketManager
 from backend.websocket.events import (
     EVT_APP_STATE, EVT_RELAY_STATE_CHANGED, EVT_VOLTAGE_UPDATED,
     EVT_ACTIVE_MEAS_CHANGED, EVT_TEST_PROGRESS, EVT_STEP_RESULT,
     EVT_SESSION_STARTED, EVT_SESSION_ENDED, EVT_ERROR, EVT_RESET,
-    EVT_ANIMATION_STATE,
+    EVT_ANIMATION_STATE, EVT_EXCITATION_CONFIG,
+    EVT_BATCH_SUMMARY, EVT_UNIT_COMPLETED, EVT_UNIT_SKIPPED,
+    EVT_TEST_PAUSED, EVT_TEST_RESUMED, EVT_TEST_STOPPED,
+    EVT_ESTOP_TRIGGERED, EVT_RELAYS_CLEARED,
 )
 
 log = logging.getLogger(__name__)
@@ -43,19 +46,26 @@ class WsBroadcaster:
         state_manager.subscribe("session_ended",    self._on_session_ended)
         state_manager.subscribe("error",            self._on_error)
         state_manager.subscribe("reset",            self._on_reset)
+        state_manager.subscribe("excitation_config", self._on_excitation_config)
+        # Batch / unit events
+        state_manager.subscribe("batch_state",     self._on_batch_state)
+        state_manager.subscribe("unit_completed",  self._on_unit_completed)
+        state_manager.subscribe("unit_skipped",    self._on_unit_skipped)
+        state_manager.subscribe("test_paused",     self._on_test_paused)
+        state_manager.subscribe("test_resumed",    self._on_test_resumed)
+        state_manager.subscribe("test_stopped",    self._on_test_stopped)
+        state_manager.subscribe("estop_triggered", self._on_estop)
+        state_manager.subscribe("relays_cleared",  self._on_relays_cleared)
 
     # ── helpers ─────────────────────────────────────────────────────────────
 
     def _send(self, event: dict) -> None:
         self._ws.broadcast_sync(event, self._loop)
 
-    # ── handlers ────────────────────────────────────────────────────────────
+    # ── core state handlers ──────────────────────────────────────────────────
 
     def _on_app_state(self, value: AppState) -> None:
-        self._send({
-            "type": EVT_APP_STATE,
-            "data": {"state": value.value}
-        })
+        self._send({"type": EVT_APP_STATE, "data": {"state": value.value}})
 
     def _on_relay_states(self, states: dict) -> None:
         self._send({
@@ -64,34 +74,36 @@ class WsBroadcaster:
         })
 
     def _on_measurement(self, voltage: float) -> None:
-        self._send({
-            "type": EVT_VOLTAGE_UPDATED,
-            "data": {"voltage": voltage, "channel": 0}
-        })
+        self._send({"type": EVT_VOLTAGE_UPDATED, "data": {"voltage": voltage, "channel": 0}})
+
+    def _on_excitation_config(self, info: dict) -> None:
+        self._send({"type": EVT_EXCITATION_CONFIG, "data": info})
 
     def _on_test_step(self, step_info: dict) -> None:
-        sm = self._sm
         self._send({
             "type": EVT_ACTIVE_MEAS_CHANGED,
             "data": {
-                "from_winding":     step_info["from_w"],
-                "to_winding":       step_info["to_w"],
-                "expected_voltage": step_info["expected"],
-                "tolerance_pct":    step_info["tolerance"],
-                "from_tap_index":   step_info.get("from_tap_index"),
-                "to_tap_index":     step_info.get("to_tap_index"),
+                "from_winding":           step_info["from_w"],
+                "to_winding":             step_info["to_w"],
+                "expected_voltage":       step_info["expected"],
+                "tolerance_pct":          step_info["tolerance"],
+                "from_tap_index":         step_info.get("from_tap_index"),
+                "to_tap_index":           step_info.get("to_tap_index"),
+                "nominal_output_voltage": step_info.get("nominal_output_voltage"),
+                "ratio_factor":           step_info.get("ratio_factor"),
+                "is_ratio_step":          step_info.get("is_ratio_step", False),
             }
         })
+        total = step_info["total"]
+        idx   = step_info["step_index"]
         self._send({
             "type": EVT_TEST_PROGRESS,
             "data": {
-                "step_index":   step_info["step_index"],
-                "total":        step_info["total"],
-                "progress_pct": (step_info["step_index"] + 1) / step_info["total"] * 100
-                                if step_info["total"] else 0,
+                "step_index":   idx,
+                "total":        total,
+                "progress_pct": (idx + 1) / total * 100 if total else 0,
             }
         })
-        # animation state mirrors active winding IDs
         self._send({
             "type": EVT_ANIMATION_STATE,
             "data": {
@@ -140,10 +152,66 @@ class WsBroadcaster:
             })
 
     def _on_error(self, message: str) -> None:
-        self._send({
-            "type": EVT_ERROR,
-            "data": {"message": message}
-        })
+        self._send({"type": EVT_ERROR, "data": {"message": message}})
 
     def _on_reset(self, _: None) -> None:
         self._send({"type": EVT_RESET, "data": {}})
+
+    # ── batch / unit handlers ────────────────────────────────────────────────
+
+    def _on_batch_state(self, summary: dict) -> None:
+        self._send({"type": EVT_BATCH_SUMMARY, "data": summary})
+
+    def _on_unit_completed(self, unit: UnitResult) -> None:
+        # Collect failed step data from the current session if available
+        session = self._sm.current_session
+        failed_steps = []
+        if session:
+            for r in session.results:
+                if not r.passed:
+                    failed_steps.append({
+                        "from":     r.from_winding,
+                        "to":       r.to_winding,
+                        "measured": r.measured_voltage,
+                        "expected": r.expected_voltage,
+                    })
+        batch = self._sm.batch_session
+        self._send({
+            "type": EVT_UNIT_COMPLETED,
+            "data": {
+                "unit_number":   unit.unit_number,
+                "transformer_id": unit.transformer_id,
+                "overall_pass":  unit.passed,
+                "passed_steps":  unit.passed_steps,
+                "total_steps":   unit.total_steps,
+                "duration":      unit.duration,
+                "failures":      failed_steps,
+                "batch": batch.to_summary(active=True) if batch else None,
+            }
+        })
+
+    def _on_unit_skipped(self, unit: UnitResult) -> None:
+        batch = self._sm.batch_session
+        self._send({
+            "type": EVT_UNIT_SKIPPED,
+            "data": {
+                "unit_number": unit.unit_number,
+                "reason":      unit.skip_reason,
+                "batch": batch.to_summary(active=True) if batch else None,
+            }
+        })
+
+    def _on_test_paused(self, _: None) -> None:
+        self._send({"type": EVT_TEST_PAUSED, "data": {}})
+
+    def _on_test_resumed(self, _: None) -> None:
+        self._send({"type": EVT_TEST_RESUMED, "data": {}})
+
+    def _on_test_stopped(self, _: None) -> None:
+        self._send({"type": EVT_TEST_STOPPED, "data": {}})
+
+    def _on_estop(self, _: None) -> None:
+        self._send({"type": EVT_ESTOP_TRIGGERED, "data": {}})
+
+    def _on_relays_cleared(self, _: None) -> None:
+        self._send({"type": EVT_RELAYS_CLEARED, "data": {}})

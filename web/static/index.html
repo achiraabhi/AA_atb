@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ATB — After-Assembling Test Bench</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://unpkg.com/konva@9/konva.min.js"></script>
+</head>
+<body>
+
+<!-- ═══════════════════════════ HEADER ═══════════════════════════ -->
+<header id="header">
+  <div class="brand">
+    <div class="brand-icon">T</div>
+    <span class="brand-name">ATB</span>
+    <span class="brand-sub">After-Assembling Test Bench</span>
+  </div>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+    <button class="tab-btn" data-tab="editor">Editor</button>
+    <button class="tab-btn" data-tab="logs">Logs</button>
+  </nav>
+
+  <div class="header-right">
+    <span id="hdr-state" class="state-badge">IDLE</span>
+    <div class="conn-indicator">
+      <span id="conn-dot" class="conn-dot offline"></span>
+      <span id="conn-label" class="conn-label">Offline</span>
+    </div>
+  </div>
+</header>
+
+<!-- ══════════════════════════ MAIN APP ══════════════════════════ -->
+<main id="app">
+
+  <!-- ─────────────────── DASHBOARD TAB ─────────────────── -->
+  <div id="tab-dashboard" class="tab-pane active">
+
+    <!-- Batch status bar (visible when batch is active) -->
+    <div id="batch-bar" class="batch-bar hidden">
+      <div class="bb-section">
+        <span class="bb-label">BATCH</span>
+        <span id="bb-id" class="bb-value mono">—</span>
+      </div>
+      <div class="bb-divider"></div>
+      <div class="bb-section">
+        <span class="bb-label">UNIT</span>
+        <span id="bb-unit" class="bb-value accent">#—</span>
+      </div>
+      <div class="bb-divider"></div>
+      <div class="bb-section">
+        <span class="bb-label">PASS</span>
+        <span id="bb-pass" class="bb-value glow">0</span>
+      </div>
+      <div class="bb-section">
+        <span class="bb-label">FAIL</span>
+        <span id="bb-fail" class="bb-value danger">0</span>
+      </div>
+      <div class="bb-section">
+        <span class="bb-label">SKIP</span>
+        <span id="bb-skip" class="bb-value muted">0</span>
+      </div>
+      <div class="bb-divider"></div>
+      <div class="bb-section">
+        <span class="bb-label">ELAPSED</span>
+        <span id="bb-elapsed" class="bb-value muted">0:00</span>
+      </div>
+      <div style="flex:1"></div>
+      <button id="btn-complete-batch" class="btn btn-sm btn-complete-batch">◼ Complete Batch</button>
+    </div>
+
+    <div class="dash-layout">
+
+      <!-- Left: control panel -->
+      <aside class="dash-left">
+
+        <div class="panel" id="control-panel">
+          <div class="panel-hdr">
+            <span class="panel-title">Test Control</span>
+            <span id="ctrl-status-badge" class="ctrl-status-badge hidden"></span>
+          </div>
+
+          <div class="panel-body">
+            <div class="field">
+              <label class="label">Transformer</label>
+              <select id="tf-select" class="input">
+                <option value="">— Select —</option>
+              </select>
+              <span id="tf-required-hint" class="field-hint hidden">Select a transformer to run a test</span>
+            </div>
+
+            <div class="field">
+              <label class="label">Operator</label>
+              <input id="op-input" type="text" class="input" placeholder="Enter operator name" />
+            </div>
+
+            <div class="field">
+              <label class="label">Test Mode</label>
+              <div class="mode-row">
+                <button id="mode-auto"   class="mode-btn active">AUTO</button>
+                <button id="mode-manual" class="mode-btn">MANUAL</button>
+              </div>
+            </div>
+
+            <!-- Excitation configuration (ratio-based testing) -->
+            <div id="excitation-section" class="excitation-section hidden">
+              <div class="excitation-hdr">
+                <span class="excitation-label">Excitation Setup</span>
+                <span id="ratio-badge" class="ratio-badge hidden">×—</span>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label class="label">Excitation Winding</label>
+                  <select id="excitation-winding" class="input input-sm">
+                    <option value="">— Select —</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label class="label">Applied Voltage (V)</label>
+                  <input id="applied-voltage" type="number" min="0" step="0.1"
+                         class="input input-sm" placeholder="e.g. 200" />
+                </div>
+              </div>
+              <div id="ratio-preview" class="ratio-preview hidden">
+                <span id="ratio-preview-text" class="ratio-preview-text"></span>
+              </div>
+            </div>
+
+            <div id="progress-section" class="progress-section hidden">
+              <div class="progress-row">
+                <span id="step-label" class="step-label">0 / 0</span>
+                <span id="pct-label"  class="pct-label">0%</span>
+              </div>
+              <div class="progress-bar">
+                <div id="progress-fill" class="progress-fill" style="width:0%"></div>
+              </div>
+            </div>
+
+            <div id="ctrl-buttons" class="ctrl-buttons">
+              <button id="btn-start"     class="btn btn-start">▶ START TEST</button>
+              <button id="btn-stop"      class="btn btn-stop hidden">⏹ STOP</button>
+              <button id="btn-pause"     class="btn btn-pause hidden">⏸ PAUSE</button>
+              <button id="btn-resume"    class="btn btn-resume hidden">▶ RESUME</button>
+              <button id="btn-next"      class="btn btn-next hidden">→ NEXT STEP</button>
+            </div>
+
+            <!-- Unit batch controls (visible after PASS/FAIL) -->
+            <div id="unit-ctrl-buttons" class="ctrl-buttons hidden">
+              <button id="btn-next-unit"  class="btn btn-next-unit">→ NEXT UNIT</button>
+              <button id="btn-retry-unit" class="btn btn-retry-unit hidden">↺ RETRY UNIT</button>
+              <button id="btn-skip-unit"  class="btn btn-skip-unit">⊘ SKIP UNIT</button>
+            </div>
+
+            <button id="btn-emergency" class="btn btn-emergency">⚡ EMERGENCY STOP</button>
+          </div>
+        </div>
+
+        <!-- Relay grid -->
+        <div class="panel" id="relay-panel">
+          <div class="panel-hdr">
+            <span class="panel-title">Relay Matrix</span>
+            <span id="relay-count" class="relay-count">0 active</span>
+          </div>
+
+          <div class="panel-body">
+            <div class="relay-group-label">Side A — Voltmeter <span class="col-a">+</span></div>
+            <div id="relays-a" class="relay-row"></div>
+
+            <div class="relay-group-label" style="margin-top:10px">Side B — Voltmeter <span class="col-b">−</span></div>
+            <div id="relays-b" class="relay-row"></div>
+
+            <div class="relay-group-label" style="margin-top:10px">Gate Relays</div>
+            <div id="relays-gate" class="relay-row"></div>
+          </div>
+        </div>
+
+      </aside>
+
+      <!-- Center: transformer canvas + unit result overlay -->
+      <section class="dash-center">
+        <div class="canvas-wrap" id="canvas-wrap">
+          <canvas id="tf-canvas"></canvas>
+          <div id="canvas-placeholder" class="canvas-placeholder">
+            Select a transformer to view diagram
+          </div>
+        </div>
+
+        <!-- Unit result overlay (shown on PASS / FAIL) -->
+        <div id="unit-result-overlay" class="unit-result-overlay hidden">
+          <div id="uro-verdict" class="uro-verdict">PASS</div>
+          <div id="uro-subtitle" class="uro-subtitle">Unit #1 · 0/0 steps · 0.0s</div>
+          <div id="uro-fail-list" class="uro-fail-list"></div>
+          <div class="uro-actions">
+            <button id="uro-btn-next"     class="btn btn-next-unit">→ NEXT UNIT</button>
+            <button id="uro-btn-retry"    class="btn btn-retry-unit hidden">↺ RETRY UNIT</button>
+            <button id="uro-btn-skip"     class="btn btn-skip-unit">⊘ SKIP UNIT</button>
+            <button id="uro-btn-complete" class="btn btn-complete-batch-ov">◼ COMPLETE BATCH</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right: status panel -->
+      <aside class="dash-right">
+
+        <div class="panel" id="status-panel">
+          <div class="panel-hdr">
+            <span class="panel-title">Live Measurement</span>
+          </div>
+
+          <div class="meas-cards">
+            <div class="meas-card">
+              <div class="meas-label">Measured</div>
+              <div class="meas-value" id="meas-measured">—</div>
+              <div class="meas-unit">V</div>
+            </div>
+            <div class="meas-card">
+              <div class="meas-label">Expected</div>
+              <div class="meas-value accent" id="meas-expected">—</div>
+              <div class="meas-unit">V</div>
+            </div>
+            <div class="meas-card">
+              <div class="meas-label">Deviation</div>
+              <div class="meas-value" id="meas-deviation">—</div>
+              <div class="meas-unit">%</div>
+            </div>
+            <div class="meas-card">
+              <div class="meas-label">Tolerance</div>
+              <div class="meas-value muted" id="meas-tolerance">±5.0</div>
+              <div class="meas-unit">%</div>
+            </div>
+          </div>
+
+          <div id="active-path" class="active-path hidden">
+            <span class="dot-pulse"></span>
+            <span id="path-from" class="path-from">—</span>
+            <span class="path-arrow">→</span>
+            <span id="path-to" class="path-to">—</span>
+          </div>
+
+          <div id="session-info" class="session-info hidden">
+            <div class="session-row">
+              <span class="label">Operator</span>
+              <span id="ses-op" class="val">—</span>
+            </div>
+            <div class="session-row">
+              <span class="label">Transformer</span>
+              <span id="ses-tf" class="val">—</span>
+            </div>
+            <div class="session-row">
+              <span class="label">Passed</span>
+              <span id="ses-passed" class="val glow">— / —</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ratio info panel (visible when ratio-based testing is active) -->
+        <div id="ratio-panel" class="panel hidden">
+          <div class="panel-hdr">
+            <span class="panel-title">Ratio Engine</span>
+            <span id="ratio-factor-badge" class="ratio-factor-badge">×—</span>
+          </div>
+          <div class="panel-body ratio-panel-body">
+            <div class="ratio-excitation-row">
+              <span class="ratio-exc-label">Excitation</span>
+              <span id="ratio-exc-info" class="ratio-exc-info">—</span>
+            </div>
+            <div class="ratio-table-wrap">
+              <table class="ratio-table">
+                <thead>
+                  <tr><th>Winding</th><th>Nominal</th><th>Expected</th></tr>
+                </thead>
+                <tbody id="ratio-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" id="results-panel">
+          <div class="panel-hdr">
+            <span class="panel-title">Step Results</span>
+            <span id="results-summary" class="results-summary"></span>
+          </div>
+          <div id="results-table-wrap" class="results-table-wrap">
+            <table id="results-table" class="results-table">
+              <thead>
+                <tr>
+                  <th>#</th><th>Path</th><th>Measured</th><th>Expected</th><th>Result</th>
+                </tr>
+              </thead>
+              <tbody id="results-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+      </aside>
+    </div>
+  </div>
+
+  <!-- ─────────────────── EDITOR TAB ─────────────────── -->
+  <div id="tab-editor" class="tab-pane">
+    <div class="topo-chrome">
+
+      <!-- Toolbar -->
+      <div class="topo-toolbar">
+        <span class="tb-section">WINDINGS</span>
+        <button id="tool-add-primary"   class="tb-btn primary-tb">+ Primary</button>
+        <button id="tool-add-secondary" class="tb-btn secondary-tb">+ Secondary</button>
+        <span class="tb-sep"></span>
+        <span class="tb-section">NODE</span>
+        <button id="tool-add-tap"    class="tb-btn" disabled>+ Tap</button>
+        <span class="tb-sep"></span>
+        <button id="tool-delete"     class="tb-btn danger-tb" disabled>✕ Delete</button>
+        <span class="tb-sep"></span>
+        <span class="tb-section">MODE</span>
+        <button id="tool-mode-topology" class="tb-btn mode-tb active">⬡ Topology</button>
+        <button id="tool-mode-validate" class="tb-btn mode-tb validate-tb">⚡ Validate</button>
+        <span class="tb-sep"></span>
+        <span class="tb-section">VIEW</span>
+        <button id="ed-zoom-in"  class="tb-btn icon-tb">＋</button>
+        <button id="ed-zoom-out" class="tb-btn icon-tb">－</button>
+        <button id="ed-zoom-fit" class="tb-btn icon-tb">⊡</button>
+        <span id="ed-zoom-pct" class="tb-zoom-pct">100%</span>
+        <div style="flex:1"></div>
+        <button id="editor-load-btn" class="tb-btn">📂 Load</button>
+        <button id="editor-save-btn" class="tb-btn glow-tb">💾 Save</button>
+      </div>
+
+      <!-- Main 3-column layout -->
+      <div class="topo-main">
+
+        <!-- Left: transformer metadata -->
+        <aside class="topo-meta">
+          <div class="panel-hdr"><span class="panel-title">Transformer</span></div>
+          <div class="topo-meta-fields">
+            <div class="field">
+              <label class="label">Name</label>
+              <input id="ed-name" class="input" placeholder="Transformer name" />
+            </div>
+            <div class="field">
+              <label class="label">ID</label>
+              <input id="ed-id" class="input" placeholder="transformer_id" />
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label class="label">Power (VA)</label>
+                <input id="ed-power" type="number" class="input" value="0" />
+              </div>
+              <div class="field">
+                <label class="label">Freq (Hz)</label>
+                <input id="ed-freq" type="number" class="input" value="50" />
+              </div>
+            </div>
+            <div class="field">
+              <label class="label">Notes</label>
+              <textarea id="ed-notes" class="input" rows="2"></textarea>
+            </div>
+            <div class="field">
+              <div class="checkbox-row">
+                <input id="ed-auto-matrix" type="checkbox" checked />
+                <label for="ed-auto-matrix" class="label">Auto-Matrix test generation</label>
+              </div>
+            </div>
+            <div class="field">
+              <label class="label">Energize Winding</label>
+              <input id="ed-energize" class="input" placeholder="P1" value="P1" />
+            </div>
+          </div>
+          <div id="editor-error" class="editor-error hidden"></div>
+        </aside>
+
+        <!-- Center: Konva topology canvas -->
+        <section class="topo-canvas-section">
+          <div id="editor-konva-wrap" class="topo-konva-wrap">
+            <div id="editor-konva-container" class="topo-konva-container"></div>
+            <div id="rule-pick-hint" class="rule-pick-hint hidden"></div>
+            <div class="topo-canvas-hint">Click to select · Drag winding to reposition · Scroll/Alt+drag to zoom/pan</div>
+          </div>
+        </section>
+
+        <!-- Right: property inspector -->
+        <aside class="topo-inspector">
+
+          <div id="inspector-empty" class="inspector-empty">
+            <div class="inspector-empty-icon">⬡</div>
+            <div class="inspector-empty-text">Select a winding or tap<br>to view properties</div>
+          </div>
+
+          <!-- Winding inspector -->
+          <div id="inspector-winding" class="inspector-panel hidden">
+            <div class="inspector-hdr">
+              <span id="insp-badge" class="insp-badge">PRIMARY</span>
+              <span class="panel-title" style="flex:1;margin-left:8px">Winding</span>
+            </div>
+            <div class="insp-fields">
+              <div class="field">
+                <label class="label">ID</label>
+                <input id="insp-wid" class="input" />
+              </div>
+              <div class="field">
+                <label class="label">Voltage (V)</label>
+                <input id="insp-voltage" type="number" class="input" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label class="label">Start Pin</label>
+                  <input id="insp-start-pin" type="number" class="input" />
+                </div>
+                <div class="field">
+                  <label class="label">End Pin</label>
+                  <input id="insp-end-pin" type="number" class="input" />
+                </div>
+              </div>
+              <div class="field">
+                <label class="label">Relay A <span class="col-a">(+)</span></label>
+                <button id="insp-relay-a" class="relay-assign-btn" data-group="A">None</button>
+              </div>
+              <div class="field">
+                <label class="label">Relay B <span class="col-b">(−)</span></label>
+                <button id="insp-relay-b" class="relay-assign-btn" data-group="B">None</button>
+              </div>
+            </div>
+            <div class="insp-actions">
+              <button id="insp-add-tap" class="btn btn-sm">+ Add Tap</button>
+              <button id="insp-delete-winding" class="btn btn-sm btn-danger">Delete</button>
+            </div>
+          </div>
+
+          <!-- Segment-pair rule inspector -->
+          <div id="inspector-rule" class="inspector-panel hidden">
+            <div class="inspector-hdr">
+              <span class="insp-badge insp-badge-rule">RULE</span>
+              <span class="panel-title" style="flex:1;margin-left:8px">Segment Rule</span>
+              <label class="insp-enabled-row">
+                <input id="insp-rule-enabled" type="checkbox" checked />
+                <span class="label" style="margin-left:4px">On</span>
+              </label>
+            </div>
+            <div class="insp-fields">
+
+              <!-- Excitation segment -->
+              <div class="segment-section segment-exc-section">
+                <div class="segment-section-hdr">
+                  <span class="segment-badge exc-badge">EXC</span>
+                  <span class="segment-section-title">Excitation Segment</span>
+                  <button id="insp-rule-pick-exc" class="btn btn-sm">Change</button>
+                </div>
+                <div class="segment-nodes-row">
+                  <span id="insp-rule-exc-a" class="rule-node-badge exc-node-badge">—</span>
+                  <span class="node-sep">↔</span>
+                  <span id="insp-rule-exc-b" class="rule-node-badge exc-node-badge">—</span>
+                </div>
+                <div class="field">
+                  <label class="label">Nominal Voltage (V)</label>
+                  <input id="insp-rule-nom-in" type="number" class="input input-sm" step="1" min="0" title="Segment voltage at rated excitation" />
+                </div>
+              </div>
+
+              <!-- Ratio display -->
+              <div class="segment-ratio-row">
+                <span id="insp-rule-ratio-display" class="segment-ratio-formula">—</span>
+              </div>
+
+              <!-- Measurement segment -->
+              <div class="segment-section segment-meas-section">
+                <div class="segment-section-hdr">
+                  <span class="segment-badge meas-badge">MEAS</span>
+                  <span class="segment-section-title">Measurement Segment</span>
+                  <button id="insp-rule-pick-meas" class="btn btn-sm">Change</button>
+                </div>
+                <div class="segment-nodes-row">
+                  <span id="insp-rule-meas-a" class="rule-node-badge meas-node-badge">—</span>
+                  <span class="node-sep">↔</span>
+                  <span id="insp-rule-meas-b" class="rule-node-badge meas-node-badge">—</span>
+                </div>
+                <div class="field">
+                  <label class="label">Nominal Voltage (V)</label>
+                  <input id="insp-rule-nom-out" type="number" class="input input-sm" step="0.1" min="0" title="Expected measured voltage at rated excitation" />
+                </div>
+              </div>
+
+              <!-- Tolerance -->
+              <div class="field-row">
+                <div class="field">
+                  <label class="label">Tolerance (%)</label>
+                  <input id="insp-rule-tolerance" type="number" class="input" step="0.5" min="0" max="100" value="10" />
+                </div>
+                <div class="field">
+                  <label class="label">Min Δ (V)</label>
+                  <input id="insp-rule-min-delta" type="number" class="input" step="0.01" min="0" value="0.1" title="Hybrid tolerance floor — prevents adjacent-voltage confusion" />
+                </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label class="label">Type</label>
+                  <select id="insp-rule-type" class="input">
+                    <option value="AC">AC</option>
+                    <option value="DC">DC</option>
+                  </select>
+                </div>
+                <div class="field" style="justify-content:flex-end;padding-top:18px">
+                  <label class="checkbox-row">
+                    <input id="insp-rule-critical" type="checkbox" checked />
+                    <span class="label">Critical</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="insp-actions">
+              <button id="insp-rule-delete" class="btn btn-sm btn-danger" style="width:100%">Delete Rule</button>
+            </div>
+          </div>
+
+          <!-- Rules list (validate mode) -->
+          <div id="inspector-rules-list" class="inspector-rules-list hidden">
+
+            <!-- Active excitation card: the fixed global excitation segment -->
+            <div id="active-exc-card" class="active-exc-card">
+              <div class="active-exc-hdr">
+                <span class="segment-badge exc-badge">EXC</span>
+                <span class="active-exc-title">Active Excitation</span>
+                <button id="btn-set-exc" class="btn btn-sm">Set</button>
+              </div>
+              <div id="active-exc-display" class="active-exc-display">
+                <span class="active-exc-unset">Not set — click Set or a canvas node to begin</span>
+              </div>
+            </div>
+
+            <div class="insp-sub-hdr" style="margin-top:10px">Measurement Rules</div>
+            <div id="rules-list-items" class="rules-list-items"></div>
+            <button id="insp-add-rule" class="btn btn-sm" style="width:100%;margin-top:8px">+ Add Measurement</button>
+          </div>
+
+          <!-- Tap inspector -->
+          <div id="inspector-tap" class="inspector-panel hidden">
+            <div class="inspector-hdr">
+              <span class="insp-badge insp-badge-tap">TAP</span>
+              <span class="panel-title" style="flex:1;margin-left:8px">Tap Node</span>
+            </div>
+            <div class="insp-fields">
+              <div class="field">
+                <label class="label">Label</label>
+                <input id="insp-tap-label" class="input" />
+              </div>
+              <div class="field">
+                <label class="label">Pin #</label>
+                <input id="insp-tap-pin" type="number" class="input" />
+              </div>
+              <div class="field">
+                <label class="label">Voltage (V)</label>
+                <input id="insp-tap-voltage" type="number" class="input" />
+              </div>
+              <div class="field">
+                <label class="label">Relay A <span class="col-a">(+)</span></label>
+                <button id="insp-tap-relay-a" class="relay-assign-btn" data-group="A">None</button>
+              </div>
+              <div class="field">
+                <label class="label">Relay B <span class="col-b">(−)</span></label>
+                <button id="insp-tap-relay-b" class="relay-assign-btn" data-group="B">None</button>
+              </div>
+            </div>
+            <div class="insp-actions">
+              <button id="insp-delete-tap" class="btn btn-sm btn-danger">Delete Tap</button>
+            </div>
+          </div>
+
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────── LOGS TAB ─────────────────── -->
+  <div id="tab-logs" class="tab-pane">
+    <div class="logs-layout">
+      <div class="panel logs-list-panel">
+        <div class="panel-hdr">
+          <span class="panel-title">Log Files</span>
+          <button id="logs-refresh" class="btn btn-sm">↻ Refresh</button>
+        </div>
+        <div id="logs-list" class="logs-list"></div>
+      </div>
+      <div class="panel logs-content-panel">
+        <div class="panel-hdr">
+          <span class="panel-title" id="log-filename">Select a file</span>
+        </div>
+        <pre id="log-content" class="log-content">Select a log file to view its contents.</pre>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Relay picker popup (shared) -->
+<div id="relay-picker" class="relay-picker hidden">
+  <div class="rp-header">
+    <span id="rp-title">Select Relay</span>
+    <button id="rp-close" class="rp-close">✕</button>
+  </div>
+  <div id="rp-buttons" class="rp-buttons"></div>
+  <button id="rp-clear" class="btn btn-sm" style="width:100%;margin-top:6px">Clear</button>
+</div>
+<div id="rp-backdrop" class="rp-backdrop hidden"></div>
+
+<script src="/static/canvas.js"></script>
+<script src="/static/editor.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

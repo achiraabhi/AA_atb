@@ -21,6 +21,7 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 # ── project root on path so core/ and hardware/ are importable ──────────────
@@ -40,6 +41,8 @@ from backend.websocket.broadcaster import WsBroadcaster
 from backend.websocket.events import (
     CMD_START_TEST, CMD_STOP_TEST, CMD_PAUSE_TEST, CMD_RESUME_TEST,
     CMD_NEXT_STEP, CMD_EMERGENCY_STOP, CMD_SELECT_TRANSFORMER, CMD_SET_OPERATOR,
+    CMD_NEXT_UNIT, CMD_SKIP_UNIT, CMD_RETRY_UNIT, CMD_COMPLETE_BATCH,
+    CMD_SET_EXCITATION,
 )
 
 logging.basicConfig(
@@ -128,6 +131,7 @@ async def websocket_endpoint(ws: WebSocket):
     # Send current state snapshot on connect
     try:
         session = sm.current_session
+        batch   = sm.batch_session
         snapshot = {
             "type": "snapshot",
             "data": {
@@ -143,6 +147,7 @@ async def websocket_endpoint(ws: WebSocket):
                     {"id": t.transformer_id, "name": t.name}
                     for t in cfg.list_transformers()
                 ],
+                "batch": batch.to_summary(active=True) if batch else None,
             }
         }
         await ws.send_json(snapshot)
@@ -168,9 +173,26 @@ async def websocket_endpoint(ws: WebSocket):
             elif cmd == CMD_SET_OPERATOR:
                 sm.operator_name = data.get("operator", "")
 
+            elif cmd == CMD_SET_EXCITATION:
+                wid = data.get("excitation_winding_id")
+                av  = data.get("applied_voltage")
+                tid = sm.selected_transformer_id
+                nominal = None
+                if wid and tid:
+                    tc = cfg.get_transformer(tid)
+                    if tc:
+                        w = tc.get_winding(wid)
+                        if w:
+                            nominal = w.nominal_voltage
+                sm.set_excitation(wid, av, nominal)
+
             elif cmd == CMD_START_TEST:
                 sm.operator_name = data.get("operator", sm.operator_name)
-                eng.start(operator=sm.operator_name)
+                eng.start(
+                    operator=sm.operator_name,
+                    excitation_winding_id=data.get("excitation_winding_id"),
+                    applied_voltage=data.get("applied_voltage"),
+                )
 
             elif cmd == CMD_STOP_TEST:
                 eng.stop()
@@ -184,6 +206,18 @@ async def websocket_endpoint(ws: WebSocket):
             elif cmd == CMD_NEXT_STEP:
                 eng.next_step()
 
+            elif cmd == CMD_NEXT_UNIT:
+                eng.next_unit()
+
+            elif cmd == CMD_SKIP_UNIT:
+                eng.skip_unit(reason=data.get("reason", ""))
+
+            elif cmd == CMD_RETRY_UNIT:
+                eng.retry_unit()
+
+            elif cmd == CMD_COMPLETE_BATCH:
+                eng.complete_batch()
+
             elif cmd == CMD_EMERGENCY_STOP:
                 eng.emergency_stop()
 
@@ -193,11 +227,16 @@ async def websocket_endpoint(ws: WebSocket):
         await ws_mgr.disconnect(ws)
 
 
-# ── serve React frontend (production build) ───────────────────────────────────
+# ── serve Python web frontend (web/static/) ───────────────────────────────────
 
-_frontend_dist = PROJECT_ROOT / "frontend" / "dist"
-if _frontend_dist.exists():
-    app.mount("/", StaticFiles(directory=str(_frontend_dist), html=True), name="static")
+_web_static = PROJECT_ROOT / "web" / "static"
+
+@app.get("/")
+async def serve_index():
+    return FileResponse(str(_web_static / "index.html"))
+
+if _web_static.exists():
+    app.mount("/static", StaticFiles(directory=str(_web_static)), name="static")
 
 
 # ── dev entry point ───────────────────────────────────────────────────────────

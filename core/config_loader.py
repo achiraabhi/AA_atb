@@ -2,19 +2,36 @@
 JSON-based transformer configuration loader.
 Discovers, validates, and caches transformer definitions.
 
-Relay assignment schema (updated):
+Relay assignment schema:
   Winding:
-    relay_a : int | null  — RL1-16 relay connected to start_pin  (voltmeter + probe)
-    relay_b : int | null  — RL17-32 relay connected to end_pin   (voltmeter − probe)
+    relay_a : int | null  — RL1-16  connected to start_pin  (voltmeter + probe)
+    relay_b : int | null  — RL17-32 connected to end_pin    (voltmeter − probe)
 
   Tap dict:
-    relay_a : int | null  — RL1-16 relay for tap_pin  (when tap is the + probe)
-    relay_b : int | null  — RL17-32 relay for tap_pin (when tap is the − probe)
+    relay_a : int | null  — RL1-16  for tap_pin (when tap is + probe)
+    relay_b : int | null  — RL17-32 for tap_pin (when tap is − probe)
 
   Backward compatibility:
     Old field relay_id  → used as relay_a if relay_a is absent
     Old field end_relay → used as relay_b if relay_b is absent
     Old tap field relay_channel → used as relay_b if neither relay_a/relay_b set
+
+Electrical segment model:
+  A validation rule now operates on two SEGMENTS, not single nodes.
+  A segment is a voltage that exists between two electrical nodes (node_a ↔ node_b).
+
+  Node ID format:
+    "W1"       — start node of winding W1 (0 V reference end)
+    "W1:end"   — end node of winding W1
+    "W1:tap0"  — tap index 0 of winding W1
+
+  Segment examples:
+    P1 ↔ P1:end       — full primary winding (600 V)
+    P1 ↔ P1:tap2      — partial winding to tap (230 V)
+    P1:tap1 ↔ P1:tap2 — between two taps (10 V)
+
+  Backward compat:
+    Old format (from_node / to_node) is auto-migrated to segment format on load.
 """
 import json
 import os
@@ -28,27 +45,83 @@ class WindingConfig:
     id:           str
     start_pin:    int
     end_pin:      int
-    voltage:      float
+    voltage:      float           # nominal voltage at full excitation
     dot_polarity: bool = True
     taps:         List[Dict] = field(default_factory=list)
     coords:       Dict = field(default_factory=dict)
-    relay_a:      Optional[int] = None  # RL1-16  start_pin → voltmeter +
-    relay_b:      Optional[int] = None  # RL17-32 end_pin   → voltmeter −
-    meas_channel: int = -1              # legacy ADC channel (-1 = unused)
+    relay_a:      Optional[int] = None   # RL1-16  start_pin → voltmeter +
+    relay_b:      Optional[int] = None   # RL17-32 end_pin   → voltmeter −
+    meas_channel: int = -1
+    can_energize: bool = True            # may be used as excitation winding
     # ── deprecated fields kept for backward compat ──────────────────────
-    relay_id:     Optional[int] = None  # old: same as relay_a
-    end_relay:    Optional[int] = None  # old: same as relay_b
+    relay_id:     Optional[int] = None
+    end_relay:    Optional[int] = None
+
+    @property
+    def nominal_voltage(self) -> float:
+        """Alias for voltage — preferred name in ratio calculations."""
+        return self.voltage
+
+
+@dataclass
+class SegmentSpec:
+    """
+    An electrical segment: a voltage that exists between two nodes.
+
+    node_a and node_b are the two endpoints.  The segment's nominal_voltage
+    is the voltage measured across node_a ↔ node_b at full (rated) excitation.
+    """
+    node_a:          str
+    node_b:          str
+    nominal_voltage: float = 0.0
+
+
+@dataclass
+class RatioValidationRule:
+    """
+    Segment-pair ratio validation rule.
+
+    The measurement validates:
+        measured_voltage / applied_excitation == nominal_meas / nominal_exc
+
+    excitation_segment : where the reduced test voltage is APPLIED
+    measurement_segment: where the induced voltage is MEASURED
+
+    Node ID format: "W1" = winding start, "W1:end" = winding end,
+                    "W1:tap0" = tap index 0.
+    """
+    id:                       str
+    excitation_segment:       SegmentSpec
+    measurement_segment:      SegmentSpec
+    tolerance_percent:        float = 10.0
+    minimum_absolute_delta:   float = 0.1    # hybrid tolerance floor (V)
+    measurement_type:         str   = "AC"
+    critical:                 bool  = True
+    enabled:                  bool  = True
+
+    # ── backward-compat properties (used by test_engine / state_manager) ──
+    @property
+    def from_node(self) -> str:
+        return self.excitation_segment.node_a
+
+    @property
+    def to_node(self) -> str:
+        return self.measurement_segment.node_a
+
+    @property
+    def nominal_input_voltage(self) -> float:
+        return self.excitation_segment.nominal_voltage
+
+    @property
+    def nominal_output_voltage(self) -> float:
+        return self.measurement_segment.nominal_voltage
 
 
 @dataclass
 class AutoMatrixConfig:
-    """
-    When enabled, SequenceManager ignores the explicit 'tests' array and
-    auto-generates the full validation sweep via MeasurementMatrixEngine.
-    """
-    enabled:           bool = False
-    energize_winding:  str  = ""
-    energize_tap_index: Optional[int] = None   # None = full winding energised
+    enabled:            bool = False
+    energize_winding:   str  = ""
+    energize_tap_index: Optional[int] = None
 
 
 @dataclass
@@ -72,18 +145,33 @@ class TransformerConfig:
     transformer_type: str
     primary:          List[WindingConfig]
     secondary:        List[WindingConfig]
-    tests:            List[TestStep]
-    rated_power_va:   float = 0.0
+    tests:              List[TestStep]
+    rated_power_va:     float = 0.0
     rated_frequency_hz: float = 50.0
-    notes:            str = ""
-    file_path:        str = ""
-    auto_matrix:      AutoMatrixConfig = field(default_factory=AutoMatrixConfig)
+    notes:              str = ""
+    file_path:          str = ""
+    auto_matrix:        AutoMatrixConfig = field(default_factory=AutoMatrixConfig)
+    ratio_rules:        List[RatioValidationRule] = field(default_factory=list)
+
+    @property
+    def windings(self) -> List[WindingConfig]:
+        """Flat list of all windings — primary and secondary are equivalent."""
+        return self.primary + self.secondary
+
+    @property
+    def winding_map(self) -> Dict[str, WindingConfig]:
+        return {w.id: w for w in self.windings}
+
+    def get_winding(self, winding_id: str) -> Optional[WindingConfig]:
+        return self.winding_map.get(winding_id)
+
+    def energizable_windings(self) -> List[WindingConfig]:
+        return [w for w in self.windings if w.can_energize]
 
 
 class ConfigLoader:
     """
     Scans the transformers/ directory and loads all JSON configs.
-    Provides validation and caching.
     """
 
     REQUIRED_TOP_KEYS = {"name", "primary", "secondary", "tests"}
@@ -166,10 +254,14 @@ class ConfigLoader:
     def _parse(self, raw: Dict, file_path: str) -> TransformerConfig:
         tid = raw.get("transformer_id") or self._slugify(raw["name"])
 
-        primary     = [self._parse_winding(w) for w in raw["primary"]]
-        secondary   = [self._parse_winding(w) for w in raw["secondary"]]
-        tests       = [self._parse_test(t) for t in raw["tests"]]
+        primary   = [self._parse_winding(w) for w in raw["primary"]]
+        secondary = [self._parse_winding(w) for w in raw["secondary"]]
+        tests     = [self._parse_test(t) for t in raw["tests"]]
         auto_matrix = self._parse_auto_matrix(raw.get("auto_matrix", {}))
+
+        # Support ratio_rules (new) | validation_rules (legacy key)
+        ratio_rules_raw = raw.get("ratio_rules", raw.get("validation_rules", []))
+        ratio_rules = [self._parse_ratio_rule(r) for r in ratio_rules_raw]
 
         return TransformerConfig(
             name=raw["name"],
@@ -183,11 +275,11 @@ class ConfigLoader:
             notes=raw.get("notes", ""),
             file_path=file_path,
             auto_matrix=auto_matrix,
+            ratio_rules=ratio_rules,
         )
 
     @staticmethod
     def _parse_winding(w: Dict) -> WindingConfig:
-        # Prefer new relay_a / relay_b; fall back to legacy relay_id / end_relay
         relay_id_raw  = w.get("relay_id")
         end_relay_raw = w.get("end_relay")
         relay_a = w.get("relay_a", relay_id_raw)
@@ -203,6 +295,7 @@ class ConfigLoader:
             relay_a=relay_a,
             relay_b=relay_b,
             meas_channel=w.get("meas_channel", -1),
+            can_energize=bool(w.get("can_energize", True)),
             relay_id=relay_id_raw,
             end_relay=end_relay_raw,
         )
@@ -228,6 +321,64 @@ class ConfigLoader:
             description=t.get("description", ""),
             from_tap_index=t.get("from_tap_index"),
             to_tap_index=t.get("to_tap_index"),
+        )
+
+    @staticmethod
+    def _legacy_node_to_segment(node_id: str, nominal_voltage: float) -> SegmentSpec:
+        """
+        Migrate a legacy single-node ID to a SegmentSpec.
+
+        "P1"       → { node_a: "P1",  node_b: "P1:end" }  (full winding)
+        "P1:end"   → { node_a: "P1",  node_b: "P1:end" }  (full winding)
+        "P1:tap0"  → { node_a: "P1",  node_b: "P1:tap0" } (start-to-tap segment)
+        """
+        if not node_id:
+            return SegmentSpec(node_a="", node_b="", nominal_voltage=nominal_voltage)
+        if ":" not in node_id or node_id.endswith(":end"):
+            wind_id = node_id.split(":")[0]
+            return SegmentSpec(node_a=wind_id, node_b=f"{wind_id}:end",
+                               nominal_voltage=nominal_voltage)
+        # tap node — segment runs from winding start to the tap
+        wind_id = node_id.split(":")[0]
+        return SegmentSpec(node_a=wind_id, node_b=node_id,
+                           nominal_voltage=nominal_voltage)
+
+    @classmethod
+    def _parse_ratio_rule(cls, r: Dict) -> RatioValidationRule:
+        rid = r.get("id", "")
+
+        if "excitation_segment" in r:
+            # New segment-based format
+            exc_raw  = r["excitation_segment"]
+            meas_raw = r["measurement_segment"]
+            exc_seg  = SegmentSpec(
+                node_a=exc_raw["node_a"],
+                node_b=exc_raw["node_b"],
+                nominal_voltage=float(exc_raw.get("nominal_voltage", 0.0)),
+            )
+            meas_seg = SegmentSpec(
+                node_a=meas_raw["node_a"],
+                node_b=meas_raw["node_b"],
+                nominal_voltage=float(meas_raw.get("nominal_voltage", 0.0)),
+            )
+        else:
+            # Legacy from_node / to_node — auto-migrate to segment format
+            from_node = r.get("from_node", r.get("from_winding", ""))
+            to_node   = r.get("to_node",   r.get("to_winding",   ""))
+            nom_in    = float(r.get("nominal_input_voltage",  r.get("expected_voltage", 0.0)))
+            nom_out   = float(r.get("nominal_output_voltage", 0.0))
+            exc_seg   = cls._legacy_node_to_segment(from_node, nom_in)
+            meas_seg  = cls._legacy_node_to_segment(to_node,   nom_out)
+
+        return RatioValidationRule(
+            id=rid,
+            excitation_segment=exc_seg,
+            measurement_segment=meas_seg,
+            tolerance_percent=float(r.get("tolerance_percent", 10.0)),
+            minimum_absolute_delta=float(r.get("minimum_absolute_delta", 0.1)),
+            measurement_type=r.get("measurement_type", "AC"),
+            critical=bool(r.get("critical", True)),
+            enabled=bool(r.get("enabled", True)),
         )
 
     @staticmethod
