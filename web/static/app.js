@@ -1058,6 +1058,7 @@ function makeEmptyConfig() {
     name: 'New Transformer', transformer_id: 'new_transformer', type: 'unknown',
     rated_power_va: 0, rated_frequency_hz: 50, notes: '',
     auto_matrix: { enabled: true, energize_winding: 'P1' },
+    connection_style: { connection_type: 'core_link', line_style: 'solid', line_color: '#1a3d6e' },
     primary: [{ id: 'P1', winding_type: 'basic_winding', start_pin: 1, end_pin: 2, voltage: 230, dot_polarity: true, relay_a: null, relay_b: null, meas_channel: -1, taps: [], coords: {} }],
     secondary: [{ id: 'S1', winding_type: 'basic_winding', start_pin: 100, end_pin: 101, voltage: 115, dot_polarity: true, relay_a: null, relay_b: null, meas_channel: -1, taps: [], coords: {} }],
     tests: [],
@@ -1231,6 +1232,8 @@ function _showInspector(sel) {
     el('insp-relay-a').className   = 'relay-assign-btn' + (w.relay_a != null ? ' assigned-a' : '');
     el('insp-relay-b').textContent = w.relay_b != null ? `RL${w.relay_b}` : 'None';
     el('insp-relay-b').className   = 'relay-assign-btn' + (w.relay_b != null ? ' assigned-b' : '');
+    el('insp-wire-color-start').value = w.wire_color_start || w.wire_color || '#1a3d6e';
+    el('insp-wire-color-end').value   = w.wire_color_end   || w.wire_color || '#1a3d6e';
   } else if (sel.type === 'tap') {
     el('inspector-tap').classList.remove('hidden');
     const t = sel.data;
@@ -1241,6 +1244,7 @@ function _showInspector(sel) {
     el('insp-tap-relay-a').className   = 'relay-assign-btn' + (t.relay_a != null ? ' assigned-a' : '');
     el('insp-tap-relay-b').textContent = t.relay_b != null ? `RL${t.relay_b}` : 'None';
     el('insp-tap-relay-b').className   = 'relay-assign-btn' + (t.relay_b != null ? ' assigned-b' : '');
+    el('insp-tap-wire-color').value    = t.wire_color || '#1a3d6e';
   }
 }
 
@@ -1480,6 +1484,16 @@ function bindInspectorEvents() {
     }, e.currentTarget);
   });
 
+  el('insp-wire-color-start').addEventListener('input', (e) => {
+    topoEditor?.setLeadColor('wire_color_start', e.target.value);
+  });
+  el('insp-wire-color-end').addEventListener('input', (e) => {
+    topoEditor?.setLeadColor('wire_color_end', e.target.value);
+  });
+  el('insp-tap-wire-color').addEventListener('input', (e) => {
+    topoEditor?.setLeadColor('wire_color', e.target.value);
+  });
+
   el('insp-add-tap').addEventListener('click', () => { topoEditor?.addTapToSelected(); });
   el('insp-delete-winding').addEventListener('click', () => { topoEditor?.deleteSelected(); });
   el('insp-delete-tap').addEventListener('click', () => { topoEditor?.deleteSelected(); });
@@ -1494,6 +1508,7 @@ function bindEditorEvents() {
   el('ed-zoom-in').addEventListener('click',  () => { topoEditor?.zoom(1);  _updateZoomLabel(); });
   el('ed-zoom-out').addEventListener('click', () => { topoEditor?.zoom(-1); _updateZoomLabel(); });
   el('ed-zoom-fit').addEventListener('click', () => { topoEditor?.fitView(); _updateZoomLabel(); });
+
 
   ['ed-name', 'ed-id', 'ed-power', 'ed-freq', 'ed-notes', 'ed-energize'].forEach(id => {
     el(id).addEventListener('input', _syncMetaFromForm);

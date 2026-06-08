@@ -8,17 +8,19 @@
  */
 
 const EC = {
-  bg: '#0d1117', grid: '#1a2030',
+  bg: '#e8ecf2',
+  grid: 'rgba(149,166,191,0.22)',
+  gridMajor: 'rgba(100,128,170,0.38)',
   core: '#1e2d4a', coreStroke: '#2a3d60',
-  coilIdle: '#3a6aaa', coilSel: '#1a9fff', coilActive: '#00ff88',
+  coilIdle: '#3a6aaa', coilSel: '#1a9fff', coilActive: '#059669',
   coilPass: '#22c55e', coilFail: '#ef4444',
-  nodeFilled: '#1a6fd4', nodeEmpty: '#2a3d60', nodeActive: '#00ff88',
-  tapIdle: '#2a5a9a', tapActive: '#00e5ff', tapSel: '#00e5ff',
-  leadIdle: 'rgba(42,61,96,0.7)', leadSel: 'rgba(26,111,212,0.6)', leadActive: 'rgba(0,255,136,0.6)',
-  labelMuted: '#64748b', labelNormal: '#94a3b8', labelSel: '#e2e8f0',
-  relayLabel: '#00e5ff', selFill: 'rgba(26,111,212,0.12)', selStroke: '#1a6fd4',
-  ruleLine: 'rgba(0,229,255,0.55)', ruleLineSel: '#00e5ff', ruleLineDisabled: 'rgba(100,116,139,0.3)',
-  nodePick: 'rgba(0,229,255,0.18)', nodePickStroke: '#00e5ff',
+  nodeFilled: '#1a6fd4', nodeEmpty: '#b8c8e0', nodeActive: '#059669',
+  tapIdle: '#2a5a9a', tapActive: '#0284c7', tapSel: '#0284c7',
+  leadIdle: 'rgba(37,61,96,0.55)', leadSel: 'rgba(37,99,235,0.8)', leadActive: 'rgba(5,150,105,0.85)',
+  labelMuted: '#64748b', labelNormal: '#475569', labelSel: '#18243a',
+  relayLabel: '#0284c7', selFill: 'rgba(37,99,235,0.08)', selStroke: '#2563eb',
+  ruleLine: 'rgba(37,99,235,0.55)', ruleLineSel: '#1a9fff', ruleLineDisabled: 'rgba(100,116,139,0.3)',
+  nodePick: 'rgba(37,99,235,0.15)', nodePickStroke: '#2563eb',
 };
 
 class TopoEditor {
@@ -76,6 +78,64 @@ class TopoEditor {
 
   getActiveExcitation() {
     return this._activeExcitation ? { ...this._activeExcitation } : null;
+  }
+
+  setConnectionColor(color) {
+    if (!this.config) return;
+    if (!this.config.connection_style) {
+      this.config.connection_style = { connection_type: 'core_link', line_style: 'solid', line_color: color };
+    } else {
+      this.config.connection_style.line_color = color;
+    }
+    this._rebuildAll();
+    this._fire('change', this.config);
+  }
+
+  getConnectionColor() {
+    return this.config?.connection_style?.line_color || EC.leadIdle;
+  }
+
+  // Direct wire-color update — mutates existing Konva objects, no rebuild.
+  // field: 'wire_color_start' | 'wire_color_end' for windings, 'wire_color' for taps.
+  setLeadColor(field, color) {
+    if (!this._sel || !this.config) return;
+    const { type, side, wIndex, tIndex } = this._sel;
+
+    if (type === 'winding') {
+      const w = this.config[side]?.[wIndex];
+      if (!w) return;
+      w[field] = color;
+
+      const leads = this._leads.get(`${side}-${wIndex}`);
+      if (leads) {
+        // Directly assign color to the relevant lead line(s)
+        if (field === 'wire_color_start' || field === 'wire_color') {
+          leads.lt.setAttr('stroke', color);
+          leads.lt.getLayer()?.draw();
+        }
+        if (field === 'wire_color_end' || field === 'wire_color') {
+          leads.lb.setAttr('stroke', color);
+          leads.lb.getLayer()?.draw();
+        }
+      }
+
+    } else if (type === 'tap') {
+      const tap = this.config[side]?.[wIndex]?.taps?.[tIndex];
+      if (!tap) return;
+      tap[field] = color;
+
+      const g = this._windLyr.findOne(`#winding-${side}-${wIndex}`);
+      if (g) {
+        const line = g.findOne(`.tap-line-${tIndex}`);
+        if (line) {
+          line.setAttr('stroke', color);
+          line.setAttr('strokeWidth', 2);
+          line.getLayer()?.draw();
+        }
+      }
+    }
+
+    this._fire('change', this.config);
   }
 
   setActiveExcitation(seg) {
@@ -220,6 +280,7 @@ class TopoEditor {
   fitView() {
     this.stage.scale({ x: 1, y: 1 });
     this.stage.position({ x: 0, y: 0 });
+    this._drawGrid();
     this.stage.batchDraw();
   }
 
@@ -231,6 +292,7 @@ class TopoEditor {
     const newS = Math.max(0.25, Math.min(4, oldS * by));
     s.scale({ x: newS, y: newS });
     s.position({ x: c.x - (c.x - s.x()) * (newS / oldS), y: c.y - (c.y - s.y()) * (newS / oldS) });
+    this._drawGrid();
     s.batchDraw();
   }
 
@@ -350,11 +412,55 @@ class TopoEditor {
 
   _drawGrid() {
     this._gridLyr.destroyChildren();
-    const L = this._L();
-    for (let x = 0; x <= L.W; x += 40)
-      this._gridLyr.add(new Konva.Line({ points: [x, 0, x, L.H], stroke: EC.grid, strokeWidth: 1 }));
-    for (let y = 0; y <= L.H; y += 40)
-      this._gridLyr.add(new Konva.Line({ points: [0, y, L.W, y], stroke: EC.grid, strokeWidth: 1 }));
+
+    const sw    = this.stage.width();
+    const sh    = this.stage.height();
+    const scale = this.stage.scaleX();
+    const ox    = this.stage.x();
+    const oy    = this.stage.y();
+
+    // World-space bounds visible in the viewport
+    const wLeft   = -ox / scale;
+    const wTop    = -oy / scale;
+    const wRight  = (sw - ox) / scale;
+    const wBottom = (sh - oy) / scale;
+
+    // Adaptive minor grid step: keep screen-space spacing in 20–80 px range
+    let step = 40;
+    while (step * scale < 20) step *= 2;
+    while (step * scale > 80) step /= 2;
+
+    const majorStep = step * 5;
+
+    // One canvas-pixel equivalent in world units
+    const px1  = 1   / scale;
+    const px15 = 1.5 / scale;
+
+    // Extend one step beyond viewport edges to avoid edge clipping
+    const x0 = Math.floor(wLeft   / step) * step - step;
+    const x1 = Math.ceil(wRight   / step) * step + step;
+    const y0 = Math.floor(wTop    / step) * step - step;
+    const y1 = Math.ceil(wBottom  / step) * step + step;
+
+    for (let x = x0; x <= x1; x += step) {
+      const isMajor = Math.round(Math.abs(x) / majorStep) * majorStep === Math.round(Math.abs(x));
+      this._gridLyr.add(new Konva.Line({
+        points: [x, y0, x, y1],
+        stroke: isMajor ? EC.gridMajor : EC.grid,
+        strokeWidth: isMajor ? px15 : px1,
+        listening: false, perfectDrawEnabled: false,
+      }));
+    }
+    for (let y = y0; y <= y1; y += step) {
+      const isMajor = Math.round(Math.abs(y) / majorStep) * majorStep === Math.round(Math.abs(y));
+      this._gridLyr.add(new Konva.Line({
+        points: [x0, y, x1, y],
+        stroke: isMajor ? EC.gridMajor : EC.grid,
+        strokeWidth: isMajor ? px15 : px1,
+        listening: false, perfectDrawEnabled: false,
+      }));
+    }
+
     this._gridLyr.batchDraw();
   }
 
@@ -366,9 +472,9 @@ class TopoEditor {
       const y = coreY + (coreH / 9) * i;
       this._coreLyr.add(new Konva.Line({ points: [coreX + 5, y, coreX + coreW - 5, y], stroke: EC.coreStroke, strokeWidth: 1, opacity: 0.5 }));
     }
-    this._coreLyr.add(new Konva.Text({ x: coreX, y: coreY + coreH + 6, text: 'CORE', fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fill: EC.labelMuted, width: coreW, align: 'center' }));
-    this._coreLyr.add(new Konva.Text({ x: L.primaryX - 70, y: coreY - 22, text: '◀ PRIMARY', fontSize: 11, fontFamily: 'JetBrains Mono, monospace', fill: '#3a6aaa' }));
-    this._coreLyr.add(new Konva.Text({ x: L.secondaryX - 32, y: coreY - 22, text: 'SECONDARY ▶', fontSize: 11, fontFamily: 'JetBrains Mono, monospace', fill: '#3a6aaa' }));
+    this._coreLyr.add(new Konva.Text({ x: coreX, y: coreY + coreH + 6, text: 'CORE', fontSize: 10, fontFamily: 'IBM Plex Mono, monospace', fill: EC.labelMuted, width: coreW, align: 'center' }));
+    this._coreLyr.add(new Konva.Text({ x: L.primaryX - 70, y: coreY - 22, text: '◀ PRIMARY', fontSize: 11, fontFamily: 'IBM Plex Mono, monospace', fill: '#3a6aaa' }));
+    this._coreLyr.add(new Konva.Text({ x: L.secondaryX - 32, y: coreY - 22, text: 'SECONDARY ▶', fontSize: 11, fontFamily: 'IBM Plex Mono, monospace', fill: '#3a6aaa' }));
   }
 
   _coilPoints(coilHalf, side, turns = 5) {
@@ -451,16 +557,16 @@ class TopoEditor {
     const lx = side === 'primary' ? -(18 + 68) : (18 + 8);
     const lw = 58;
     const la = side === 'primary' ? 'right' : 'left';
-    g.add(new Konva.Text({ x: lx, y: -9, text: winding.id, fontSize: 13, fontFamily: 'JetBrains Mono, monospace', fill: isSel ? EC.labelSel : EC.labelNormal, width: lw, align: la, name: 'wid-lbl' }));
-    g.add(new Konva.Text({ x: lx, y: 7, text: `${winding.voltage}V`, fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fill: EC.labelMuted, width: lw, align: la }));
+    g.add(new Konva.Text({ x: lx, y: -9, text: winding.id, fontSize: 13, fontFamily: 'IBM Plex Mono, monospace', fill: isSel ? EC.labelSel : EC.labelNormal, width: lw, align: la, name: 'wid-lbl' }));
+    g.add(new Konva.Text({ x: lx, y: 7, text: `${winding.voltage}V`, fontSize: 10, fontFamily: 'IBM Plex Mono, monospace', fill: EC.labelMuted, width: lw, align: la }));
 
     if (winding.relay_a != null) {
       const on = Boolean(this._relays[String(winding.relay_a)]);
-      g.add(new Konva.Text({ x: lx, y: -coilHalf - 14, text: `RL${winding.relay_a}`, fontSize: 9, fontFamily: 'JetBrains Mono, monospace', fill: on ? EC.nodeActive : EC.relayLabel, width: lw, align: la, name: 'rl-a' }));
+      g.add(new Konva.Text({ x: lx, y: -coilHalf - 14, text: `RL${winding.relay_a}`, fontSize: 9, fontFamily: 'IBM Plex Mono, monospace', fill: on ? EC.nodeActive : EC.relayLabel, width: lw, align: la, name: 'rl-a' }));
     }
     if (winding.relay_b != null) {
       const on = Boolean(this._relays[String(winding.relay_b)]);
-      g.add(new Konva.Text({ x: lx, y: coilHalf + 6, text: `RL${winding.relay_b}`, fontSize: 9, fontFamily: 'JetBrains Mono, monospace', fill: on ? EC.nodeActive : EC.relayLabel, width: lw, align: la, name: 'rl-b' }));
+      g.add(new Konva.Text({ x: lx, y: coilHalf + 6, text: `RL${winding.relay_b}`, fontSize: 9, fontFamily: 'IBM Plex Mono, monospace', fill: on ? EC.nodeActive : EC.relayLabel, width: lw, align: la, name: 'rl-b' }));
     }
 
     winding.taps.forEach((tap, ti) => this._addTap(g, tap, ti, winding.taps.length, coilHalf, side, wIndex));
@@ -497,7 +603,8 @@ class TopoEditor {
     const on = (tap.relay_a != null && Boolean(this._relays[String(tap.relay_a)])) ||
                (tap.relay_b != null && Boolean(this._relays[String(tap.relay_b)]));
 
-    g.add(new Konva.Line({ points: [0, tapY, tapX, tapY], stroke: on ? 'rgba(0,229,255,0.5)' : 'rgba(42,90,154,0.4)', strokeWidth: 1, dash: [4, 3] }));
+    const tapLineColor = tap.wire_color || (on ? 'rgba(2,132,199,0.6)' : 'rgba(42,90,154,0.35)');
+    g.add(new Konva.Line({ name: `tap-line-${ti}`, points: [0, tapY, tapX, tapY], stroke: tapLineColor, strokeWidth: tap.wire_color ? 2 : 1.5, lineCap: 'round' }));
 
     const node = new Konva.Circle({
       x: tapX, y: tapY, radius: 5,
@@ -523,13 +630,13 @@ class TopoEditor {
 
     const lx = side === 'primary' ? -(18 + 55) : (18 + 16);
     const label = tap.label || `${tap.voltage}V`;
-    g.add(new Konva.Text({ x: lx, y: tapY - 5, text: label, fontSize: 9, fontFamily: 'JetBrains Mono, monospace', fill: isSel ? EC.tapSel : (on ? EC.tapActive : EC.labelMuted) }));
+    g.add(new Konva.Text({ x: lx, y: tapY - 5, text: label, fontSize: 9, fontFamily: 'IBM Plex Mono, monospace', fill: isSel ? EC.tapSel : (on ? EC.tapActive : EC.labelMuted) }));
 
     if (tap.relay_a != null || tap.relay_b != null) {
       const parts = [];
       if (tap.relay_a != null) parts.push(`RL${tap.relay_a}+`);
       if (tap.relay_b != null) parts.push(`RL${tap.relay_b}−`);
-      g.add(new Konva.Text({ x: lx, y: tapY + 6, text: parts.join(' '), fontSize: 8, fontFamily: 'JetBrains Mono, monospace', fill: EC.relayLabel }));
+      g.add(new Konva.Text({ x: lx, y: tapY + 6, text: parts.join(' '), fontSize: 8, fontFamily: 'IBM Plex Mono, monospace', fill: EC.relayLabel }));
     }
 
     node.on('click tap', (e) => {
@@ -551,9 +658,21 @@ class TopoEditor {
     const isSel = this._sel?.type === 'winding' && this._sel?.side === side && this._sel?.wIndex === wIndex;
     const onA = w.relay_a != null && Boolean(this._relays[String(w.relay_a)]);
     const onB = w.relay_b != null && Boolean(this._relays[String(w.relay_b)]);
+    const fallback = this.config?.connection_style?.line_color || EC.leadIdle;
+    const startColor = w.wire_color_start || w.wire_color || fallback;
+    const endColor   = w.wire_color_end   || w.wire_color || fallback;
 
-    const lt = new Konva.Line({ points: [colX, cy - coilHalf, coreEx, cy - coilHalf], stroke: onA ? EC.leadActive : (isSel ? EC.leadSel : EC.leadIdle), strokeWidth: 1.5, dash: [6, 4] });
-    const lb = new Konva.Line({ points: [colX, cy + coilHalf, coreEx, cy + coilHalf], stroke: onB ? EC.leadActive : (isSel ? EC.leadSel : EC.leadIdle), strokeWidth: 1.5, dash: [6, 4] });
+    // Always use the wire's own color — selection is shown by coil glow + sel-bg rect
+    const lt = new Konva.Line({
+      points: [colX, cy - coilHalf, coreEx, cy - coilHalf],
+      stroke: onA ? EC.leadActive : startColor,
+      strokeWidth: 2, lineCap: 'round',
+    });
+    const lb = new Konva.Line({
+      points: [colX, cy + coilHalf, coreEx, cy + coilHalf],
+      stroke: onB ? EC.leadActive : endColor,
+      strokeWidth: 2, lineCap: 'round',
+    });
     this._wireLyr.add(lt, lb);
     this._leads.set(`${side}-${wIndex}`, { lt, lb, coilHalf });
   }
@@ -664,7 +783,7 @@ class TopoEditor {
         this._ruleLyr.add(new Konva.Text({
           x: midX - 56, y: midY - 17,
           text: `ACTIVE EXC  ${(this._activeExcitation.nominal_voltage || 0).toFixed(0)}V`,
-          fontSize: 9, fontFamily: 'JetBrains Mono, monospace',
+          fontSize: 9, fontFamily: 'IBM Plex Mono, monospace',
           fill: '#1a9fff', listening: false, fontStyle: 'bold',
         }));
       }
@@ -703,7 +822,7 @@ class TopoEditor {
         this._ruleLyr.add(new Konva.Text({
           x: (excA.x + excB.x) / 2 - 18, y: (excA.y + excB.y) / 2 - 8,
           text: `EXC ${(exc.nominal_voltage || 0).toFixed(0)}V`,
-          fontSize: 8, fontFamily: 'JetBrains Mono, monospace',
+          fontSize: 8, fontFamily: 'IBM Plex Mono, monospace',
           fill: excColor, listening: false, opacity: alpha,
         }));
       }
@@ -726,7 +845,7 @@ class TopoEditor {
         this._ruleLyr.add(new Konva.Text({
           x: (measA.x + measB.x) / 2 - 18, y: (measA.y + measB.y) / 2 - 8,
           text: `MEAS ${(meas.nominal_voltage || 0).toFixed(0)}V`,
-          fontSize: 8, fontFamily: 'JetBrains Mono, monospace',
+          fontSize: 8, fontFamily: 'IBM Plex Mono, monospace',
           fill: measColor, listening: false, opacity: alpha,
         }));
       }
@@ -764,7 +883,7 @@ class TopoEditor {
           : `${exc.node_a || '?'}→${meas.node_a || '?'}`;
         this._ruleLyr.add(new Konva.Text({
           x: cpx - 54, y: cpy - 9,
-          text: lt, fontSize: 9, fontFamily: 'JetBrains Mono, monospace',
+          text: lt, fontSize: 9, fontFamily: 'IBM Plex Mono, monospace',
           fill: relColor, width: 108, align: 'center', listening: false, opacity: alpha,
         }));
       }
@@ -1114,6 +1233,7 @@ class TopoEditor {
       const mpt = { x: (ptr.x - this.stage.x()) / oldS, y: (ptr.y - this.stage.y()) / oldS };
       this.stage.scale({ x: newS, y: newS });
       this.stage.position({ x: ptr.x - mpt.x * newS, y: ptr.y - mpt.y * newS });
+      this._drawGrid();
       this.stage.batchDraw();
     });
 
@@ -1129,6 +1249,7 @@ class TopoEditor {
     this.stage.on('mousemove', (e) => {
       if (!pan) return;
       this.stage.position({ x: panStart.sx + e.evt.clientX - panStart.mx, y: panStart.sy + e.evt.clientY - panStart.my });
+      this._drawGrid();
       this.stage.batchDraw();
     });
     this.stage.on('mouseup', () => {

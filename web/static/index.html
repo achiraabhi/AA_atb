@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ATB — After-Assembling Test Bench</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css" />
   <script src="https://unpkg.com/konva@9/konva.min.js"></script>
 </head>
@@ -413,12 +416,42 @@
                 </div>
               </div>
               <div class="field">
-                <label class="label">Relay A <span class="col-a">(+)</span></label>
-                <button id="insp-relay-a" class="relay-assign-btn" data-group="A">None</button>
+                <label class="label">Relay A <span class="col-a">(+)</span> — Start Wire</label>
+                <div style="display:flex;gap:6px">
+                  <button id="insp-relay-a" class="relay-assign-btn" data-group="A" style="flex:1">None</button>
+                  <select id="insp-wire-color-start" class="input" style="flex:0 0 90px">
+                    <option value="#1a3d6e">Navy</option>
+                    <option value="#2563eb">Blue</option>
+                    <option value="#18243a">Black</option>
+                    <option value="#475569">Slate</option>
+                    <option value="#dc2626">Red</option>
+                    <option value="#059669">Green</option>
+                    <option value="#d97706">Orange</option>
+                    <option value="#7c3aed">Purple</option>
+                    <option value="#0891b2">Cyan</option>
+                    <option value="#78716c">Brown</option>
+                    <option value="#64748b">Gray</option>
+                  </select>
+                </div>
               </div>
               <div class="field">
-                <label class="label">Relay B <span class="col-b">(−)</span></label>
-                <button id="insp-relay-b" class="relay-assign-btn" data-group="B">None</button>
+                <label class="label">Relay B <span class="col-b">(−)</span> — End Wire</label>
+                <div style="display:flex;gap:6px">
+                  <button id="insp-relay-b" class="relay-assign-btn" data-group="B" style="flex:1">None</button>
+                  <select id="insp-wire-color-end" class="input" style="flex:0 0 90px">
+                    <option value="#1a3d6e">Navy</option>
+                    <option value="#2563eb">Blue</option>
+                    <option value="#18243a">Black</option>
+                    <option value="#475569">Slate</option>
+                    <option value="#dc2626">Red</option>
+                    <option value="#059669">Green</option>
+                    <option value="#d97706">Orange</option>
+                    <option value="#7c3aed">Purple</option>
+                    <option value="#0891b2">Cyan</option>
+                    <option value="#78716c">Brown</option>
+                    <option value="#64748b">Gray</option>
+                  </select>
+                </div>
               </div>
             </div>
             <div class="insp-actions">
@@ -558,6 +591,22 @@
               <div class="field">
                 <label class="label">Relay B <span class="col-b">(−)</span></label>
                 <button id="insp-tap-relay-b" class="relay-assign-btn" data-group="B">None</button>
+              </div>
+              <div class="field">
+                <label class="label">Wire Color</label>
+                <select id="insp-tap-wire-color" class="input">
+                  <option value="#1a3d6e">Navy</option>
+                  <option value="#2563eb">Blue</option>
+                  <option value="#18243a">Black</option>
+                  <option value="#475569">Slate</option>
+                  <option value="#dc2626">Red</option>
+                  <option value="#059669">Green</option>
+                  <option value="#d97706">Orange</option>
+                  <option value="#7c3aed">Purple</option>
+                  <option value="#0891b2">Cyan</option>
+                  <option value="#78716c">Brown</option>
+                  <option value="#64748b">Gray</option>
+                </select>
               </div>
             </div>
             <div class="insp-actions">
