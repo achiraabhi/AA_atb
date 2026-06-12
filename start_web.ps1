@@ -6,7 +6,10 @@ Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-Write-Host "Starting server on http://localhost:8000 ..." -ForegroundColor Green
+$localIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notmatch 'Loopback' -and $_.IPAddress -notmatch '^169' } | Select-Object -First 1).IPAddress
+Write-Host "Starting server..." -ForegroundColor Green
+Write-Host "  Local:   http://localhost:8000" -ForegroundColor White
+Write-Host "  Network: http://${localIP}:8000" -ForegroundColor Yellow
 Write-Host ""
 
-python -m uvicorn backend.main:app --reload --port 8000 --app-dir "$root"
+python -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000 --app-dir "$root"

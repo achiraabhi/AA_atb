@@ -14,11 +14,13 @@ CORS is enabled for local frontend development (http://localhost:5173).
 import asyncio
 import json
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -27,6 +29,8 @@ from fastapi.staticfiles import StaticFiles
 # ── project root on path so core/ and hardware/ are importable ──────────────
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+load_dotenv(PROJECT_ROOT / ".env")
 
 from core.config_loader import ConfigLoader
 from core.state_manager import StateManager
@@ -64,8 +68,25 @@ async def lifespan(app: FastAPI):
     log.info(f"Loaded {len(ids)} transformer configs: {ids}")
 
     state_manager   = StateManager()
-    hardware        = MockHardwareManager()
-    hardware.initialize()
+
+    # Hardware: set HARDWARE_MODE=real in .env to use physical relay board
+    hardware_mode = os.getenv("HARDWARE_MODE", "mock").lower()
+    if hardware_mode == "real":
+        from hardware.relay_controller import RelayController
+        serial_port = os.getenv("SERIAL_PORT", "/dev/ttyUSB0")
+        baud        = int(os.getenv("SERIAL_BAUD", "115200"))
+        hardware = RelayController()
+        ok = hardware.connect(serial_port, baud)
+        if not ok:
+            log.warning(f"Real hardware connect failed on {serial_port} — falling back to mock")
+            hardware = MockHardwareManager()
+            hardware.initialize()
+        else:
+            log.info(f"Real relay board connected on {serial_port} @ {baud}")
+    else:
+        hardware = MockHardwareManager()
+        hardware.initialize()
+        log.info("Running with mock hardware (simulation mode)")
 
     logger          = TestLogger()
     seq_manager     = SequenceManager()
@@ -104,12 +125,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",   # Vite dev server
-        "http://localhost:3000",   # CRA / alternate dev
-        "http://127.0.0.1:5173",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

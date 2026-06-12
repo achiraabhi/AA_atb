@@ -1,10 +1,8 @@
-customtkinter>=5.2.0
-Pillow>=10.0.0
-pyserial>=3.5
-
-# Backend server (web mode)
+# ATB — web server dependencies (works on Raspberry Pi + Windows)
 fastapi>=0.111.0
 uvicorn[standard]>=0.30.0
 websockets>=12.0
 pydantic>=2.7.0
 python-multipart>=0.0.9
+pyserial>=3.5
+python-dotenv>=1.0.0
