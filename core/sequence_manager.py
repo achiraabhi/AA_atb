@@ -61,7 +61,12 @@ class SequenceManager:
 
     # ── Public API ────────────────────────────────────────────────────────
 
-    def load(self, config: TransformerConfig) -> List[ExecutableStep]:
+    def load(
+        self,
+        config: TransformerConfig,
+        excitation_winding_id: Optional[str] = None,
+        energize_tap_index: Optional[int] = None,
+    ) -> List[ExecutableStep]:
         self._transformer_config = config
         self._steps = []
         self._current_index = -1
@@ -71,9 +76,13 @@ class SequenceManager:
             winding_map = config.winding_map
             for idx, rule in enumerate(enabled_rules):
                 self._steps.append(self._resolve_ratio_rule(idx, rule, winding_map))
-        elif config.auto_matrix.enabled:
+        elif config.auto_matrix.enabled or excitation_winding_id:
             from core.measurement_matrix_engine import MeasurementMatrixEngine
-            self._steps = MeasurementMatrixEngine().build_matrix(config)
+            self._steps = MeasurementMatrixEngine().build_matrix(
+                config,
+                excitation_winding_id=excitation_winding_id,
+                energize_tap_index=energize_tap_index,
+            )
         else:
             winding_map = config.winding_map
             for idx, test in enumerate(config.tests):

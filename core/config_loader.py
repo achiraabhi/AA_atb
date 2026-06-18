@@ -295,7 +295,7 @@ class ConfigLoader:
             relay_a=relay_a,
             relay_b=relay_b,
             meas_channel=w.get("meas_channel", -1),
-            can_energize=bool(w.get("can_energize", True)),
+            can_energize=bool(w.get("can_energize") if w.get("can_energize") is not None else True),
             relay_id=relay_id_raw,
             end_relay=end_relay_raw,
         )

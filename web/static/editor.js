@@ -278,8 +278,19 @@ class TopoEditor {
   }
 
   fitView() {
-    this.stage.scale({ x: 1, y: 1 });
-    this.stage.position({ x: 0, y: 0 });
+    const L  = this._L();
+    const sw = this.stage.width(), sh = this.stage.height();
+    // Content bounding box: windings span ~±195 from centre plus label room,
+    // and the full (possibly extended) core height with padding.
+    const contentW = 540;
+    const contentH = L.coreH + 80;
+    const scale = Math.max(0.25, Math.min(sw / contentW, sh / contentH, 1));
+    this.stage.scale({ x: scale, y: scale });
+    // Content centre is (cx, H/2) since the core is vertically centred.
+    this.stage.position({
+      x: sw / 2 - L.cx * scale,
+      y: sh / 2 - (L.coreY + L.coreH / 2) * scale,
+    });
     this._drawGrid();
     this.stage.batchDraw();
   }
@@ -312,6 +323,7 @@ class TopoEditor {
       meas_channel: -1, taps: [], coords: {},
     });
     this._rebuildAll();
+    this.fitView();
     this._selectWinding(side, list.length - 1);
     this._fire('change', this.config);
   }
@@ -333,6 +345,7 @@ class TopoEditor {
       this.config[side].splice(wIndex, 1);
       this._sel = null;
       this._rebuildAll();
+      this.fitView();
       this._fire('select', null);
     } else if (type === 'tap') {
       this.config[side][wIndex].taps.splice(tIndex, 1);
@@ -359,8 +372,17 @@ class TopoEditor {
 
   _L() {
     const W = this.stage.width(), H = this.stage.height();
-    const coreH = Math.min(H * 0.72, 360);
-    const coreY = (H - coreH) / 2;
+    // Core grows with winding count so each winding gets a fixed vertical slot
+    // instead of being squeezed into a fixed-height core.
+    const count = Math.max(
+      (this.config?.primary || []).length,
+      (this.config?.secondary || []).length,
+      1,
+    );
+    const SLOT  = 95;                          // vertical space per winding
+    const baseH = Math.min(H * 0.72, 360);
+    const coreH = Math.max(baseH, count * SLOT);
+    const coreY = (H - coreH) / 2;             // centered (negative when taller than stage)
     const cx = W / 2;
     return { W, H, cx, coreX: cx - 20, coreW: 40, coreH, coreY, primaryX: cx - 195, secondaryX: cx + 195 };
   }
@@ -372,7 +394,13 @@ class TopoEditor {
     this._coreLyr.destroyChildren();
     this._windLyr.destroyChildren();
     this._ruleLyr.destroyChildren();
-    const prevMeta = new Map(this._wmeta);
+    // Preserve manually-dragged positions across re-renders, but when the
+    // winding count changes (add/delete) re-lay everything out to defaults so
+    // windings spread evenly across the newly-sized core.
+    const curCount = (this.config?.primary || []).length + (this.config?.secondary || []).length;
+    const countChanged = curCount !== this._lastCount;
+    this._lastCount = curCount;
+    const prevMeta = countChanged ? new Map() : new Map(this._wmeta);
     this._leads.clear();
     this._wmeta.clear();
 
@@ -510,7 +538,7 @@ class TopoEditor {
 
     g.add(new Konva.Line({
       points: this._coilPoints(coilHalf, side),
-      stroke: isSel ? EC.coilSel : EC.coilIdle, strokeWidth: isSel ? 2.5 : 2,
+      stroke: isSel ? EC.coilSel : EC.coilIdle, strokeWidth: isSel ? 5 : 4,
       lineCap: 'round', lineJoin: 'round', name: 'coil',
       shadowBlur: isSel ? 6 : 0, shadowColor: EC.coilSel,
     }));
@@ -557,8 +585,12 @@ class TopoEditor {
     const lx = side === 'primary' ? -(18 + 68) : (18 + 8);
     const lw = 58;
     const la = side === 'primary' ? 'right' : 'left';
-    g.add(new Konva.Text({ x: lx, y: -9, text: winding.id, fontSize: 13, fontFamily: 'IBM Plex Mono, monospace', fill: isSel ? EC.labelSel : EC.labelNormal, width: lw, align: la, name: 'wid-lbl' }));
-    g.add(new Konva.Text({ x: lx, y: 7, text: `${winding.voltage}V`, fontSize: 10, fontFamily: 'IBM Plex Mono, monospace', fill: EC.labelMuted, width: lw, align: la }));
+    // id + voltage: placed inside the two leads, toward the core (opposite the
+    // outer relay badges). Coil oscillates away from the core, so this gap is clear.
+    const ilw = 160;
+    const ilx = side === 'primary' ? 12 : -(12 + ilw);
+    g.add(new Konva.Text({ x: ilx, y: -9, text: winding.id, fontSize: 13, fontFamily: 'IBM Plex Mono, monospace', fill: isSel ? EC.labelSel : EC.labelNormal, width: ilw, align: 'center', name: 'wid-lbl' }));
+    g.add(new Konva.Text({ x: ilx, y: 7, text: `${winding.voltage}V`, fontSize: 10, fontFamily: 'IBM Plex Mono, monospace', fill: EC.labelMuted, width: ilw, align: 'center' }));
 
     if (winding.relay_a != null) {
       const on = Boolean(this._relays[String(winding.relay_a)]);
@@ -666,12 +698,12 @@ class TopoEditor {
     const lt = new Konva.Line({
       points: [colX, cy - coilHalf, coreEx, cy - coilHalf],
       stroke: onA ? EC.leadActive : startColor,
-      strokeWidth: 2, lineCap: 'round',
+      strokeWidth: 4, lineCap: 'round',
     });
     const lb = new Konva.Line({
       points: [colX, cy + coilHalf, coreEx, cy + coilHalf],
       stroke: onB ? EC.leadActive : endColor,
-      strokeWidth: 2, lineCap: 'round',
+      strokeWidth: 4, lineCap: 'round',
     });
     this._wireLyr.add(lt, lb);
     this._leads.set(`${side}-${wIndex}`, { lt, lb, coilHalf });

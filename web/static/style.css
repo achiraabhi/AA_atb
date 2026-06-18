@@ -617,6 +617,44 @@ textarea.input { resize: vertical; font-size: 12px; }
   margin: 10px 14px 0;
 }
 
+/* Generate Rules section */
+.gen-rules-section {
+  background: rgba(5,150,105,0.05);
+  border: 1px solid rgba(5,150,105,0.2);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-top: 6px;
+}
+.gen-rules-hdr {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.gen-rules-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--glow);
+}
+.gen-rules-btn {
+  width: 100%;
+  margin-top: 6px;
+  background: rgba(5,150,105,0.15);
+  border-color: rgba(5,150,105,0.4);
+  color: var(--glow);
+  font-weight: 600;
+}
+.gen-rules-btn:hover { background: rgba(5,150,105,0.28); }
+.ed-gen-status {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin-top: 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+
 /* winding card */
 .winding-card {
   border: 1px solid var(--border);
@@ -989,11 +1027,69 @@ textarea.input { resize: vertical; font-size: 12px; }
   background: rgba(239,68,68,0.08);
 }
 
-/* dash-layout must fill remaining space when batch bar is visible */
+/* ── Live voltage bar (V1/V2) ────────────────────────────────────────────── */
+.voltage-bar {
+  display: flex;
+  align-items: center;
+  height: 38px;
+  flex-shrink: 0;
+  padding: 0 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  gap: 0;
+}
+.vbar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+}
+.vbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+.vbar-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+  transition: background 0.3s;
+}
+.vbar-dot.fresh  { background: var(--glow);    animation: pulse 2s infinite; }
+.vbar-dot.stale  { background: var(--warning); animation: none; }
+.vbar-dot.off    { background: var(--muted);   animation: none; }
+.vbar-label {
+  font-size: 9px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  white-space: nowrap;
+}
+.vbar-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  min-width: 70px;
+  text-align: right;
+  transition: color 0.2s;
+}
+.vbar-value.fresh { color: var(--primary); }
+.vbar-value.stale { color: var(--warning); }
+.vbar-unit {
+  font-size: 11px;
+  color: var(--muted);
+  align-self: flex-end;
+  padding-bottom: 2px;
+}
+
+/* dash-layout must fill remaining space when batch/voltage bars are visible */
 .dash-layout {
   flex: 1;
   min-height: 0;
-  /* height: 100% is overridden by flex:1 within the column flex container */
 }
 
 /* Unit result overlay — floats above the canvas */
@@ -1474,3 +1570,40 @@ textarea.input { resize: vertical; font-size: 12px; }
   opacity: 0.7;
 }
 .rp-btn.rp-occupied:hover { background: rgba(239,68,68,0.08); color: rgba(239,68,68,0.55); }
+
+/* ── serial port assignment ──────────────────────────────────────────────── */
+.vbar-ports-btn { white-space: nowrap; }
+
+.ports-modal {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  z-index: 1000;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.18);
+}
+.ports-body { display: flex; flex-direction: column; gap: 10px; }
+.ports-toolbar { display: flex; align-items: center; gap: 10px; }
+.ports-row, .ports-baud-row {
+  display: grid;
+  grid-template-columns: 130px 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+.ports-baud-row { grid-template-columns: 130px 1fr; }
+.ports-label { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.ports-select {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 6px 8px;
+  font-size: 12px;
+  width: 100%;
+}
+.ports-select:focus { border-color: var(--accent); outline: none; }

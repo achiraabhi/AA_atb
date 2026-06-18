@@ -73,8 +73,8 @@ class WsBroadcaster:
             "data": {"relays": {str(k): v for k, v in states.items()}}
         })
 
-    def _on_measurement(self, voltage: float) -> None:
-        self._send({"type": EVT_VOLTAGE_UPDATED, "data": {"voltage": voltage, "channel": 0}})
+    def _on_measurement(self, voltage) -> None:
+        self._send({"type": EVT_VOLTAGE_UPDATED, "data": {"voltage": voltage, "no_signal": voltage is None, "channel": 0}})
 
     def _on_excitation_config(self, info: dict) -> None:
         self._send({"type": EVT_EXCITATION_CONFIG, "data": info})

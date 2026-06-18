@@ -34,7 +34,6 @@ class RelayController(RelayControllerInterface):
     Production relay controller.
 
     Relay IDs are 1-based (RL1 = 1, RL34 = 34) matching the hardware spec.
-    Use connect_mock() for software-only testing without a serial port.
     """
 
     def __init__(self) -> None:
@@ -45,17 +44,10 @@ class RelayController(RelayControllerInterface):
 
     # ── connection ────────────────────────────────────────────────────────
 
-    def connect(self, port: Optional[str] = None, baud: int = 115200) -> bool:
-        if port is None:
-            return self.connect_mock()
+    def connect(self, port: str, baud: int = 115200) -> bool:
         ok = self._serial.connect(port, baud)
         self._status = HardwareStatus.CONNECTED if ok else HardwareStatus.ERROR
         return ok
-
-    def connect_mock(self) -> bool:
-        """Activate without a real serial port (software simulation only)."""
-        self._status = HardwareStatus.CONNECTED
-        return True
 
     def disconnect(self) -> None:
         self.reset_all_relays()

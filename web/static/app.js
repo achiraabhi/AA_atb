@@ -59,6 +59,7 @@ const state = {
   loadedConfig:          null,
   relayStates:           {},
   currentVoltage:        null,
+  measurementNoSignal:   false,
   expectedVoltage:       null,
   tolerancePct:          5,
   activePrimary:         null,
@@ -170,9 +171,14 @@ function dispatchWsEvent(msg) {
       break;
 
     case 'voltage_updated':
-      state.currentVoltage = data.voltage;
+      state.currentVoltage      = data.voltage;
+      state.measurementNoSignal = data.no_signal || false;
       renderMeasurement();
       renderCanvas();
+      break;
+
+    case 'live_voltages':
+      renderVoltageBar(data);
       break;
 
     case 'active_measurement_changed':
@@ -271,7 +277,7 @@ function dispatchWsEvent(msg) {
       state.batchSession = null;
       stopBatchTimer();
       hideUnitResult();
-      state.currentVoltage  = null;
+      state.currentVoltage = null; state.measurementNoSignal = false;
       state.expectedVoltage = null;
       state.activePrimary   = null;
       state.activeSecondary = null;
@@ -298,7 +304,7 @@ function dispatchWsEvent(msg) {
     case 'reset':
       state.activePrimary    = null;
       state.activeSecondary  = null;
-      state.currentVoltage   = null;
+      state.currentVoltage = null; state.measurementNoSignal = false;
       state.expectedVoltage  = null;
       state.progressPct      = 0;
       state.currentStepIndex = -1;
@@ -337,11 +343,13 @@ async function loadConfig(id) {
     tfCanvas.setConfig(cfg);
     el('canvas-placeholder').classList.add('hidden');
     renderExcitationSection();
+    _populateEnergizeDropdown(cfg);
   } catch {
     tfCanvas.setConfig(null);
     state.loadedWindings = [];
     el('canvas-placeholder').classList.remove('hidden');
     renderExcitationSection();
+    _populateEnergizeDropdown(null);
   }
 }
 
@@ -640,29 +648,66 @@ function buildRelayRow(container, from, to) {
   }
 }
 
+function renderVoltageBar(data) {
+  const { v1, v2, v1_fresh, v2_fresh, v1_connected, v2_connected } = data;
+
+  const v1El   = document.getElementById('vbar-v1');
+  const v2El   = document.getElementById('vbar-v2');
+  const v1Dot  = document.getElementById('vbar-v1-dot');
+  const v2Dot  = document.getElementById('vbar-v2-dot');
+
+  // V1
+  if (v1 !== null && v1 !== undefined) {
+    v1El.textContent = v1.toFixed(3);
+    v1El.className   = 'vbar-value ' + (v1_fresh ? 'fresh' : 'stale');
+    v1Dot.className  = 'vbar-dot '   + (v1_fresh ? 'fresh' : 'stale');
+  } else {
+    v1El.textContent = v1_connected ? '…' : '—';
+    v1El.className   = 'vbar-value';
+    v1Dot.className  = 'vbar-dot off';
+  }
+
+  // V2
+  if (v2 !== null && v2 !== undefined) {
+    v2El.textContent = v2.toFixed(3);
+    v2El.className   = 'vbar-value ' + (v2_fresh ? 'fresh' : 'stale');
+    v2Dot.className  = 'vbar-dot '   + (v2_fresh ? 'fresh' : 'stale');
+  } else {
+    v2El.textContent = v2_connected ? '…' : '—';
+    v2El.className   = 'vbar-value';
+    v2Dot.className  = 'vbar-dot off';
+  }
+}
+
 function renderMeasurement() {
-  const { currentVoltage, expectedVoltage, tolerancePct } = state;
+  const { currentVoltage, measurementNoSignal, expectedVoltage, tolerancePct } = state;
 
   const measEl = el('meas-measured');
   const expEl  = el('meas-expected');
   const devEl  = el('meas-deviation');
   const tolEl  = el('meas-tolerance');
 
-  measEl.textContent = currentVoltage  != null ? currentVoltage.toFixed(3)  : '—';
-  expEl.textContent  = expectedVoltage != null ? expectedVoltage.toFixed(3) : '—';
-  tolEl.textContent  = `±${tolerancePct.toFixed(1)}`;
-
-  if (currentVoltage != null && expectedVoltage != null && expectedVoltage !== 0) {
-    const dev = Math.abs(currentVoltage - expectedVoltage) / expectedVoltage * 100;
-    devEl.textContent = dev.toFixed(2);
-    const ok = dev <= tolerancePct;
-    devEl.className  = 'meas-value ' + (ok ? 'success' : 'danger');
-    measEl.className = 'meas-value ' + (ok ? 'glow' : 'danger');
+  if (measurementNoSignal) {
+    measEl.textContent = 'No Signal';
+    measEl.className   = 'meas-value muted';
+    devEl.textContent  = '—';
+    devEl.className    = 'meas-value';
   } else {
-    devEl.textContent = '—';
-    devEl.className   = 'meas-value';
-    measEl.className  = 'meas-value';
+    measEl.textContent = currentVoltage != null ? currentVoltage.toFixed(3) : '—';
+    if (currentVoltage != null && expectedVoltage != null && expectedVoltage !== 0) {
+      const dev = Math.abs(currentVoltage - expectedVoltage) / expectedVoltage * 100;
+      devEl.textContent = dev.toFixed(2);
+      const ok = dev <= tolerancePct;
+      devEl.className  = 'meas-value ' + (ok ? 'success' : 'danger');
+      measEl.className = 'meas-value ' + (ok ? 'glow' : 'danger');
+    } else {
+      devEl.textContent = '—';
+      devEl.className   = 'meas-value';
+      measEl.className  = 'meas-value';
+    }
   }
+  expEl.textContent = expectedVoltage != null ? expectedVoltage.toFixed(3) : '—';
+  tolEl.textContent = `±${tolerancePct.toFixed(1)}`;
 }
 
 function renderActivePath() {
@@ -701,7 +746,7 @@ function renderResults() {
     tr.innerHTML = `
       <td class="muted">${r.step_index + 1}</td>
       <td>${esc(r.from_winding)}<span class="muted"> → </span>${esc(r.to_winding)}</td>
-      <td style="text-align:right;color:${passed ? 'var(--glow)' : 'var(--danger)'}">${r.measured_voltage.toFixed(3)}V</td>
+      <td style="text-align:right;color:${passed ? 'var(--glow)' : 'var(--danger)'}">${r.error ? 'No Signal' : r.measured_voltage.toFixed(3) + 'V'}</td>
       <td style="text-align:right;color:var(--muted)">${r.expected_voltage.toFixed(3)}V</td>
       <td style="text-align:center"><span class="pass-badge ${passed ? 'pass' : 'fail'}">${passed ? 'PASS' : 'FAIL'}</span></td>
     `;
@@ -1001,7 +1046,12 @@ function bindTabs() {
         }, 50);
       }
       if (btn.dataset.tab === 'logs') loadLogs();
-      if (btn.dataset.tab === 'editor') setTimeout(initEditor, 30);
+      if (btn.dataset.tab === 'editor') setTimeout(() => {
+        initEditor();
+        // Always refresh the Generate Rules dropdown with whatever is currently loaded
+        const cfg = editorConfig || state.loadedConfig;
+        if (cfg) _populateEnergizeDropdown(cfg);
+      }, 30);
     });
   });
 }
@@ -1199,8 +1249,63 @@ function _syncMetaToForm(cfg) {
   el('ed-power').value = cfg.rated_power_va || 0;
   el('ed-freq').value  = cfg.rated_frequency_hz || 50;
   el('ed-notes').value = cfg.notes || '';
-  el('ed-auto-matrix').checked = cfg.auto_matrix?.enabled ?? true;
-  el('ed-energize').value      = cfg.auto_matrix?.energize_winding || 'P1';
+  el('ed-auto-matrix').checked = cfg.auto_matrix?.enabled ?? false;
+  el('ed-energize').value      = cfg.auto_matrix?.energize_winding || '';
+  _populateEnergizeDropdown(cfg);
+}
+
+function _populateEnergizeDropdown(cfg) {
+  const sel = el('ed-energize-sel');
+  if (!sel) return;
+
+  // Prefer state.loadedWindings (always in sync with the selected transformer)
+  const windings = state.loadedWindings?.length ? state.loadedWindings : (() => {
+    const src = cfg || state.loadedConfig;
+    return [
+      ...(src?.primary   || []).map(w => ({ id: w.id, nominal_voltage: w.voltage, can_energize: w.can_energize, side: 'primary' })),
+      ...(src?.secondary || []).map(w => ({ id: w.id, nominal_voltage: w.voltage, can_energize: w.can_energize, side: 'secondary' })),
+    ];
+  })();
+
+  const curVal = el('ed-energize').value
+    || (cfg || state.loadedConfig)?.auto_matrix?.energize_winding
+    || '';
+
+  sel.innerHTML = '<option value="">— Select winding —</option>';
+  for (const w of windings) {
+    if (w.can_energize === false) continue;
+    const opt = document.createElement('option');
+    opt.value       = w.id;
+    opt.textContent = `${w.id}  —  ${w.side === 'primary' ? 'Primary' : 'Secondary'}  ${w.nominal_voltage}V`;
+    if (w.id === curVal) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  _populateEnergizeTapDropdown(cfg);
+}
+
+function _populateEnergizeTapDropdown(cfg) {
+  const wid    = el('ed-energize-sel')?.value;
+  const tapSel = el('ed-energize-tap');
+  const tapFld = el('ed-energize-tap-field');
+  if (!tapSel || !tapFld) return;
+  tapSel.innerHTML = '<option value="">Full winding</option>';
+  // Look up tap data from the full config (loadedConfig or editorConfig)
+  const src  = (cfg?.primary?.length || cfg?.secondary?.length) ? cfg : (state.loadedConfig || cfg);
+  const all  = [...(src?.primary || []), ...(src?.secondary || [])];
+  const winding = all.find(w => w.id === wid);
+  if (winding?.taps?.length) {
+    tapFld.style.display = '';
+    const etIdx = src?.auto_matrix?.energize_tap_index;
+    winding.taps.forEach((tap, i) => {
+      const opt = document.createElement('option');
+      opt.value       = String(i);
+      opt.textContent = `Tap ${i}: ${tap.label || ''} (${tap.voltage}V)`;
+      if (etIdx != null && i === etIdx) opt.selected = true;
+      tapSel.appendChild(opt);
+    });
+  } else {
+    tapFld.style.display = 'none';
+  }
 }
 
 function _updateToolbarState(sel) {
@@ -1263,8 +1368,6 @@ function _showRuleInspector(rule) {
   el('insp-rule-nom-out').value       = meas.nominal_voltage ?? 0;
   el('insp-rule-tolerance').value     = rule.tolerance_percent      ?? 10;
   el('insp-rule-min-delta').value     = rule.minimum_absolute_delta ?? 0.1;
-  el('insp-rule-type').value          = rule.measurement_type       || 'AC';
-  el('insp-rule-critical').checked    = !!rule.critical;
   el('insp-rule-enabled').checked     = rule.enabled !== false;
   _updateRuleRatioDisplay(exc.nominal_voltage, meas.nominal_voltage);
 }
@@ -1290,7 +1393,7 @@ function _updateRulesList() {
   if (!items) return;
   items.innerHTML = '';
   if (rules.length === 0) {
-    items.innerHTML = '<div style="padding:6px 2px;font-family:var(--font-mono);font-size:10px;color:var(--muted)">No measurement rules yet — set excitation then add measurements</div>';
+    items.innerHTML = '<div style="padding:6px 2px;font-family:var(--font-mono);font-size:10px;color:var(--muted)">No rules yet — select a winding and click Generate Rules, or add manually</div>';
     return;
   }
   for (const rule of rules) {
@@ -1383,18 +1486,6 @@ function bindRuleInspectorEvents() {
     const rule = topoEditor?.getSelectedRule();
     if (!rule) return;
     topoEditor.updateRule(rule.id, { minimum_absolute_delta: parseFloat(e.target.value) || 0.1 });
-  });
-
-  el('insp-rule-type').addEventListener('change', (e) => {
-    const rule = topoEditor?.getSelectedRule();
-    if (!rule) return;
-    topoEditor.updateRule(rule.id, { measurement_type: e.target.value });
-  });
-
-  el('insp-rule-critical').addEventListener('change', (e) => {
-    const rule = topoEditor?.getSelectedRule();
-    if (!rule) return;
-    topoEditor.updateRule(rule.id, { critical: e.target.checked });
   });
 
   el('insp-rule-enabled').addEventListener('change', (e) => {
@@ -1510,10 +1601,72 @@ function bindEditorEvents() {
   el('ed-zoom-fit').addEventListener('click', () => { topoEditor?.fitView(); _updateZoomLabel(); });
 
 
-  ['ed-name', 'ed-id', 'ed-power', 'ed-freq', 'ed-notes', 'ed-energize'].forEach(id => {
+  ['ed-name', 'ed-id', 'ed-power', 'ed-freq', 'ed-notes'].forEach(id => {
     el(id).addEventListener('input', _syncMetaFromForm);
   });
-  el('ed-auto-matrix').addEventListener('change', _syncMetaFromForm);
+
+  el('ed-energize-sel').addEventListener('change', () => {
+    const src = (editorConfig?.primary?.length || editorConfig?.secondary?.length)
+      ? editorConfig : state.loadedConfig;
+    _populateEnergizeTapDropdown(src);
+    _syncMetaFromForm();
+  });
+  el('ed-energize-tap').addEventListener('change', _syncMetaFromForm);
+
+  el('ed-generate-rules-btn').addEventListener('click', async () => {
+    // Use dashboard-selected transformer if editor hasn't been explicitly loaded
+    const activeCfg = (editorConfig?.primary?.length || editorConfig?.secondary?.length)
+      ? editorConfig : state.loadedConfig;
+    const tid = activeCfg?.transformer_id || state.selectedTransformerId;
+    const wid = el('ed-energize-sel').value;
+    if (!tid) { alert('Select a transformer on the Dashboard first.'); return; }
+    if (!wid) { alert('Select an energize winding first.'); return; }
+
+    const tapRaw = el('ed-energize-tap').value;
+    const tapIdx = tapRaw !== '' ? parseInt(tapRaw) : null;
+    const tol    = parseFloat(el('ed-gen-tolerance').value) || 5.0;
+
+    const statusEl = el('ed-gen-status');
+    statusEl.textContent = 'Generating…';
+    statusEl.className   = 'ed-gen-status';
+
+    try {
+      const result = await apiPost(
+        `/transformers/${encodeURIComponent(tid)}/generate-rules`,
+        { excitation_winding_id: wid, energize_tap_index: tapIdx,
+          tolerance_percent: tol, save: true }
+      );
+
+      // Merge generated rules into whichever config is active
+      if (!editorConfig || (!editorConfig.primary?.length && !editorConfig.secondary?.length)) {
+        editorConfig = activeCfg ? JSON.parse(JSON.stringify(activeCfg)) : makeEmptyConfig();
+      }
+      // Apply the auto-assigned relays returned by the backend
+      if (result.primary)   editorConfig.primary   = result.primary;
+      if (result.secondary) editorConfig.secondary = result.secondary;
+      editorConfig.ratio_rules  = result.rules;
+      editorConfig.auto_matrix  = { enabled: false, energize_winding: wid, energize_tap_index: tapIdx };
+      el('ed-auto-matrix').checked = false;
+      el('ed-energize').value      = wid;
+      if (topoEditor) topoEditor.setConfig(editorConfig);
+
+      statusEl.textContent = `${result.count} rules generated`;
+      statusEl.style.color = 'var(--glow)';
+
+      // Switch to validate mode so the user sees the generated rules
+      setEditorMode('validate');
+      _updateRulesList();
+
+      // Generation saves to disk — refresh the dashboard if this is the selected one
+      if (tid === state.selectedTransformerId) {
+        await loadConfig(state.selectedTransformerId);
+        renderCanvas();
+      }
+    } catch (e) {
+      statusEl.textContent = 'Error: ' + e;
+      statusEl.style.color = 'var(--danger)';
+    }
+  });
 
   el('editor-save-btn').addEventListener('click', async () => {
     _syncMetaFromForm();
@@ -1534,6 +1687,11 @@ function bindEditorEvents() {
       setTimeout(() => { el('editor-save-btn').textContent = '💾 Save'; }, 2500);
       el('editor-error').classList.add('hidden');
       await loadTransformerList();
+      // Refresh the dashboard view if this transformer is the selected one
+      if (editorConfig.transformer_id === state.selectedTransformerId) {
+        await loadConfig(state.selectedTransformerId);
+        renderCanvas();
+      }
     } catch (e) {
       el('editor-error').textContent = String(e);
       el('editor-error').classList.remove('hidden');
@@ -1571,9 +1729,14 @@ function _syncMetaFromForm() {
   editorConfig.rated_power_va     = Number(el('ed-power').value) || 0;
   editorConfig.rated_frequency_hz = Number(el('ed-freq').value)  || 50;
   editorConfig.notes              = el('ed-notes').value;
+  const wid    = el('ed-energize-sel').value || el('ed-energize').value;
+  const tapRaw = el('ed-energize-tap').value;
+  const tapIdx = tapRaw !== '' ? parseInt(tapRaw) : null;
+  el('ed-energize').value = wid;
   editorConfig.auto_matrix = {
-    enabled: el('ed-auto-matrix').checked,
-    energize_winding: el('ed-energize').value,
+    enabled:            el('ed-auto-matrix').checked,
+    energize_winding:   wid,
+    energize_tap_index: tapIdx,
   };
   if (topoEditor) topoEditor.config = editorConfig;
 }
@@ -1639,6 +1802,91 @@ el('rp-close').addEventListener('click', closeRelayPicker);
 el('rp-backdrop').addEventListener('click', closeRelayPicker);
 el('rp-clear').addEventListener('click', () => { if (rpCallback) rpCallback(null); closeRelayPicker(); });
 
+// ── serial port assignment modal ────────────────────────────────────────────
+
+function openPortsModal() {
+  el('ports-modal').classList.remove('hidden');
+  el('ports-backdrop').classList.remove('hidden');
+  scanPorts();
+}
+
+function closePortsModal() {
+  el('ports-modal').classList.add('hidden');
+  el('ports-backdrop').classList.add('hidden');
+}
+
+async function scanPorts() {
+  const status = el('ports-status');
+  status.textContent = 'Scanning…';
+  try {
+    const { ports } = await apiGet('/serial/ports');
+    fillPortSelect('ports-v1', ports, 'v1');
+    fillPortSelect('ports-v2', ports, 'v2');
+    status.textContent = ports.length
+      ? `${ports.length} port${ports.length === 1 ? '' : 's'} found`
+      : 'No serial ports detected';
+  } catch (e) {
+    status.textContent = 'Scan failed';
+    console.error(e);
+  }
+}
+
+function fillPortSelect(selectId, ports, target) {
+  const sel = el(selectId);
+  const prev = sel.value;
+  sel.innerHTML = '';
+  if (!ports.length) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '— none —';
+    sel.appendChild(opt);
+    return;
+  }
+  for (const p of ports) {
+    const opt = document.createElement('option');
+    opt.value = p.device;
+    let label = p.device;
+    if (p.type) label += `  · ${p.type}`;
+    if (p.assigned) label += `  [${p.assigned.toUpperCase()}]`;
+    opt.textContent = label;
+    sel.appendChild(opt);
+  }
+  // Preselect, in order: prior choice → port already on this target →
+  // first detected voltmeter not already in use → first port.
+  const onTarget   = ports.find(p => p.assigned === target);
+  const freeMeter  = ports.find(p => p.type === 'voltmeter' && !p.assigned);
+  sel.value = (prev && ports.some(p => p.device === prev)) ? prev
+            : onTarget  ? onTarget.device
+            : freeMeter ? freeMeter.device
+            : ports[0].device;
+}
+
+async function assignPort(target) {
+  const sel  = el(target === 'v1' ? 'ports-v1' : 'ports-v2');
+  const port = sel.value;
+  const baud = parseInt(el('ports-baud').value, 10) || 115200;
+  const status = el('ports-status');
+  if (!port) { status.textContent = 'Pick a port first'; return; }
+  status.textContent = `Assigning ${target.toUpperCase()} → ${port}…`;
+  try {
+    await apiPost('/serial/voltmeter', { target, port, baud });
+    status.textContent = `${target.toUpperCase()} connected on ${port}`;
+    scanPorts();
+  } catch (e) {
+    status.textContent = `${target.toUpperCase()} failed — port busy or wrong baud`;
+    console.error(e);
+  }
+}
+
+function bindPortsModal() {
+  el('btn-ports').addEventListener('click', openPortsModal);
+  el('ports-close').addEventListener('click', closePortsModal);
+  el('ports-backdrop').addEventListener('click', closePortsModal);
+  el('ports-scan').addEventListener('click', scanPorts);
+  el('ports-assign-v1').addEventListener('click', () => assignPort('v1'));
+  el('ports-assign-v2').addEventListener('click', () => assignPort('v2'));
+}
+
 // ── utilities ─────────────────────────────────────────────────────────────────
 
 function setVisible(id, visible) {
@@ -1662,6 +1910,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initCanvas();
   bindTabs();
   bindControlPanel();
+  bindPortsModal();
   loadTransformerList();
   connectWS();
 });

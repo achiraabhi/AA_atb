@@ -6,8 +6,9 @@
   "rated_frequency_hz": 50,
   "notes": "",
   "auto_matrix": {
-    "enabled": true,
-    "energize_winding": "P1"
+    "enabled": false,
+    "energize_winding": "P1",
+    "energize_tap_index": null
   },
   "primary": [
     {
@@ -98,7 +99,7 @@
   "tests": [],
   "ratio_rules": [
     {
-      "id": "a6u8o2kp8",
+      "id": "auto_01000832",
       "excitation_segment": {
         "node_a": "P1",
         "node_b": "P1:end",
@@ -109,14 +110,15 @@
         "node_b": "P2:end",
         "nominal_voltage": 230
       },
-      "tolerance_percent": 10,
+      "tolerance_percent": 5.0,
       "minimum_absolute_delta": 0.1,
       "measurement_type": "AC",
       "critical": true,
-      "enabled": true
+      "enabled": true,
+      "_label": "P2  230V"
     },
     {
-      "id": "0w2oocep7",
+      "id": "auto_836d7554",
       "excitation_segment": {
         "node_a": "P1",
         "node_b": "P1:end",
@@ -127,104 +129,15 @@
         "node_b": "S1:end",
         "nominal_voltage": 115
       },
-      "tolerance_percent": 10,
+      "tolerance_percent": 5.0,
       "minimum_absolute_delta": 0.1,
       "measurement_type": "AC",
       "critical": true,
-      "enabled": true
+      "enabled": true,
+      "_label": "S1  115V"
     },
     {
-      "id": "35rqd629f",
-      "excitation_segment": {
-        "node_a": "P1",
-        "node_b": "P1:end",
-        "nominal_voltage": 230
-      },
-      "measurement_segment": {
-        "node_a": "S1",
-        "node_b": "S1:tap0",
-        "nominal_voltage": 115
-      },
-      "tolerance_percent": 10,
-      "minimum_absolute_delta": 0.1,
-      "measurement_type": "AC",
-      "critical": true,
-      "enabled": true
-    },
-    {
-      "id": "9hxmee1i8",
-      "excitation_segment": {
-        "node_a": "P1",
-        "node_b": "P1:end",
-        "nominal_voltage": 230
-      },
-      "measurement_segment": {
-        "node_a": "S1",
-        "node_b": "S1:tap1",
-        "nominal_voltage": 115
-      },
-      "tolerance_percent": 10,
-      "minimum_absolute_delta": 0.1,
-      "measurement_type": "AC",
-      "critical": true,
-      "enabled": true
-    },
-    {
-      "id": "opdjcevix",
-      "excitation_segment": {
-        "node_a": "P1",
-        "node_b": "P1:end",
-        "nominal_voltage": 230
-      },
-      "measurement_segment": {
-        "node_a": "S1",
-        "node_b": "S1:end",
-        "nominal_voltage": 115
-      },
-      "tolerance_percent": 10,
-      "minimum_absolute_delta": 0.1,
-      "measurement_type": "AC",
-      "critical": true,
-      "enabled": true
-    },
-    {
-      "id": "hni55af7t",
-      "excitation_segment": {
-        "node_a": "P1",
-        "node_b": "P1:end",
-        "nominal_voltage": 230
-      },
-      "measurement_segment": {
-        "node_a": "S3",
-        "node_b": "S3:tap0",
-        "nominal_voltage": 115
-      },
-      "tolerance_percent": 10,
-      "minimum_absolute_delta": 0.1,
-      "measurement_type": "AC",
-      "critical": true,
-      "enabled": true
-    },
-    {
-      "id": "pb3ex8wsr",
-      "excitation_segment": {
-        "node_a": "P1",
-        "node_b": "P1:end",
-        "nominal_voltage": 230
-      },
-      "measurement_segment": {
-        "node_a": "S3",
-        "node_b": "S3:tap1",
-        "nominal_voltage": 115
-      },
-      "tolerance_percent": 10,
-      "minimum_absolute_delta": 0.1,
-      "measurement_type": "AC",
-      "critical": true,
-      "enabled": true
-    },
-    {
-      "id": "5llozcbnh",
+      "id": "auto_e3ce6776",
       "excitation_segment": {
         "node_a": "P1",
         "node_b": "P1:end",
@@ -235,11 +148,12 @@
         "node_b": "S3:end",
         "nominal_voltage": 115
       },
-      "tolerance_percent": 10,
+      "tolerance_percent": 5.0,
       "minimum_absolute_delta": 0.1,
       "measurement_type": "AC",
       "critical": true,
-      "enabled": true
+      "enabled": true,
+      "_label": "S3  115V"
     }
   ]
 }

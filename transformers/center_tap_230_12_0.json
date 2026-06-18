@@ -1,0 +1,125 @@
+{
+  "name": "Center-Tap Secondary 230V / 0-12-0V",
+  "transformer_id": "center_tap_230_12_0",
+  "type": "center_tap_transformer",
+  "rated_power_va": 150,
+  "rated_frequency_hz": 50,
+  "notes": "Single primary, center-tapped secondary for full-wave rectifier supplies",
+  "primary": [
+    {
+      "id": "P1",
+      "winding_type": "basic_winding",
+      "start_pin": 1,
+      "end_pin": 2,
+      "voltage": 230,
+      "dot_polarity": true,
+      "relay_a": 1,
+      "relay_b": 17,
+      "meas_channel": -1,
+      "taps": [],
+      "coords": {}
+    }
+  ],
+  "secondary": [
+    {
+      "id": "S1",
+      "winding_type": "center_tap",
+      "start_pin": 4,
+      "end_pin": 6,
+      "voltage": 24,
+      "dot_polarity": true,
+      "relay_a": 2,
+      "relay_b": 18,
+      "meas_channel": 0,
+      "taps": [
+        {
+          "pin": 5,
+          "voltage": 12,
+          "label": "CT (0V)",
+          "relay_a": 3,
+          "relay_b": 19,
+          "meas_channel": 1
+        }
+      ],
+      "coords": {}
+    }
+  ],
+  "tests": [
+    {
+      "from": "P1",
+      "to": "S1",
+      "expected_voltage": 24.0,
+      "tolerance_percent": 5.0,
+      "measurement_channel": 0,
+      "stabilization_delay_ms": 500,
+      "relay_map": {
+        "2": true,
+        "18": true,
+        "33": true,
+        "34": true
+      },
+      "description": "Full secondary: 24V across pin 4-6"
+    },
+    {
+      "from": "P1",
+      "to": "S1",
+      "to_tap_index": 0,
+      "expected_voltage": 12.0,
+      "tolerance_percent": 5.0,
+      "measurement_channel": 1,
+      "stabilization_delay_ms": 500,
+      "relay_map": {
+        "2": true,
+        "19": true,
+        "33": true,
+        "34": true
+      },
+      "description": "Half secondary (CT): 12V across pin 4-5"
+    }
+  ],
+  "auto_matrix": {
+    "enabled": false,
+    "energize_winding": "P1",
+    "energize_tap_index": null
+  },
+  "ratio_rules": [
+    {
+      "id": "auto_7799df76",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S1",
+        "node_b": "S1:end",
+        "nominal_voltage": 24
+      },
+      "tolerance_percent": 5.0,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "S1  24V"
+    },
+    {
+      "id": "auto_4c7a025e",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S1",
+        "node_b": "S1:tap0",
+        "nominal_voltage": 12.0
+      },
+      "tolerance_percent": 5.0,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "S1 @ CT (0V)  (12.0V)"
+    }
+  ]
+}

@@ -221,7 +221,10 @@ class TestEngine:
         config   = self._current_config
         operator = self._current_operator
 
-        steps = self._seq.load(config)
+        steps = self._seq.load(
+            config,
+            excitation_winding_id=self._excitation_winding_id,
+        )
         total = len(steps)
 
         self._state.begin_session(config.transformer_id, operator, total)
@@ -333,6 +336,9 @@ class TestEngine:
             expected_voltage = self._ratio_engine.compute_expected(
                 step.nominal_output_voltage, self._ratio_factor
             )
+        elif step.is_ratio_step:
+            # No applied voltage entered — use nominal as expected (unity ratio assumed)
+            expected_voltage = step.nominal_output_voltage
         else:
             expected_voltage = step.expected_voltage
 
@@ -357,21 +363,12 @@ class TestEngine:
             self._log.warn(f"Relay set not fully acked for step {step.index + 1}")
         self._state.set_relay_states(step.relay_map)
 
-        # Inject simulated voltage (mock hardware only)
-        try:
-            self._hw.simulate_test_voltages(
-                expected_voltage,
-                channel=step.measurement_channel,
-                deviation_pct=1.5,
-            )
-        except AttributeError:
-            pass
-
         time.sleep(step.stabilization_delay_ms / 1000.0)
 
         reading = self._hw.voltmeter.read_voltage(step.measurement_channel)
 
         if not reading.valid:
+            self._state.set_measurement(None)
             result = TestStepResult(
                 step_index        = step.index,
                 from_winding      = step.from_winding_id,

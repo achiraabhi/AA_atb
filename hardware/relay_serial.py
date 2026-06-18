@@ -63,10 +63,16 @@ class RelaySerial:
                     write_timeout=self.TIMEOUT_S,
                 )
                 self._connected = True
+                # Drain the MCU boot banner (e.g. "ATB_RELAY_READY\r\n")
+                # before sending PING so the boot message isn't mistaken for
+                # the PING response.
+                import time as _time
+                _time.sleep(0.3)
+                self._port.reset_input_buffer()
             log.info(f"Relay MCU connected on {port} @ {baud}")
-            # Verify MCU is alive
-            if not self._send(build_ping()):
-                log.warning(f"Relay MCU PING did not return OK on {port}")
+            # Verify MCU is alive (some firmware doesn't implement PING — not fatal)
+            if not self._send_quiet(build_ping()):
+                log.debug(f"Relay MCU PING no-OK on {port} (firmware may not implement PING)")
             return True
         except Exception as exc:
             log.error(f"Relay serial connect failed ({port}): {exc}")
@@ -95,7 +101,7 @@ class RelaySerial:
         return self._send(build_estop())
 
     def ping(self) -> bool:
-        return self._send(build_ping())
+        return self._send_quiet(build_ping())
 
     # ── internal ──────────────────────────────────────────────────────────
 
@@ -112,6 +118,25 @@ class RelaySerial:
                 ok = resp.upper().startswith(RESP_OK)
                 if not ok:
                     log.warning(f"MCU non-OK response for {cmd.strip()!r}: {resp!r}")
+                return ok
+            except Exception as exc:
+                log.error(f"Relay serial I/O error: {exc}")
+                self._connected = False
+                return False
+
+    def _send_quiet(self, cmd: str) -> bool:
+        """Like _send but logs non-OK at DEBUG (used for PING health-checks)."""
+        with self._lock:
+            if not self._connected or self._port is None:
+                return False
+            try:
+                self._port.write(cmd.encode("ascii"))
+                self._port.flush()
+                raw = self._port.readline()
+                resp = raw.decode("ascii", errors="replace").strip()
+                ok = resp.upper().startswith(RESP_OK)
+                if not ok:
+                    log.debug(f"MCU non-OK response for {cmd.strip()!r}: {resp!r}")
                 return ok
             except Exception as exc:
                 log.error(f"Relay serial I/O error: {exc}")

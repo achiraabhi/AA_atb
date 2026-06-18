@@ -1,9 +1,9 @@
 """
 Abstract base classes for all hardware interfaces.
 
-Concrete implementations (real serial hardware or mock simulation) must
-subclass these ABCs.  The test engine and UI code depend only on these
-interfaces, never on concrete drivers.
+Concrete implementations (real serial hardware drivers) must subclass these
+ABCs.  The test engine and UI code depend only on these interfaces, never on
+concrete drivers.
 
 Relay board layout constants are also defined here so any module can
 import them without pulling in a concrete implementation.

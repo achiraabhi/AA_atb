@@ -99,10 +99,22 @@ class TransformerCanvas {
 
     this._computeLayout(W, H);
     this._drawGrid(W, H);
+
+    // Scale the diagram (core + windings + particles) to fit when the core has
+    // been extended past the canvas. Overlays below stay at screen scale.
+    const s = this.diagramScale || 1;
+    ctx.save();
+    if (s !== 1) {
+      ctx.translate(W / 2, H / 2);
+      ctx.scale(s, s);
+      ctx.translate(-W / 2, -H / 2);
+    }
     this._drawCore();
     this._drawAllWindings();
     this._updateParticles();
     this._drawParticles();
+    ctx.restore();
+
     this._drawVoltage(W, H);
     this._drawPassFail(W, H);
   }
@@ -128,8 +140,23 @@ class TransformerCanvas {
     this.H = H;
     this.coreX  = W / 2 - 15;
     this.coreW  = 30;
-    this.coreH  = H * 0.72;
-    this.coreY  = (H - this.coreH) / 2;
+
+    // Core grows with winding count so windings keep a fixed vertical slot
+    // instead of cramming into a fixed-height core.
+    const count = Math.max(
+      (this.config?.primary   || []).length,
+      (this.config?.secondary || []).length,
+      1,
+    );
+    const SLOT  = 80;                          // vertical space per winding
+    const baseH = H * 0.72;
+    this.coreH  = Math.max(baseH, count * SLOT);
+    this.coreY  = (H - this.coreH) / 2;        // centered (negative when extended)
+
+    // When the extended core is taller than the canvas, scale the diagram down
+    // so it stays fully visible (HUD overlays are drawn unscaled).
+    this.diagramScale = Math.min(1, (H * 0.92) / this.coreH);
+
     this.colLX  = this.coreX - 130;  // primary col center x
     this.colRX  = this.coreX + this.coreW + 130; // secondary col center x
   }
@@ -204,7 +231,7 @@ class TransformerCanvas {
     const isActive = w.id === this.activePrimary || w.id === this.activeSecondary;
     const coilColor = this._windingColor(w, isActive);
     const leadColor = isActive ? C.leadActive : C.leadIdle;
-    const lw        = isActive ? 2.5 : 1.5;
+    const lw        = isActive ? 5 : 3;
 
     // lead lines (coil → core)
     ctx.strokeStyle = leadColor;
@@ -216,7 +243,7 @@ class TransformerCanvas {
 
     // coil
     ctx.strokeStyle = coilColor;
-    ctx.lineWidth = isActive ? 3 : 2;
+    ctx.lineWidth = isActive ? 6 : 4;
     if (isActive) {
       ctx.shadowColor = coilColor;
       ctx.shadowBlur  = 14;
@@ -267,11 +294,11 @@ class TransformerCanvas {
       ctx.fillText(tapLabel, side === 'left' ? cx - 12 : cx + 12, tapY + 3);
     });
 
-    // winding label
+    // winding label — placed between the coil and the core, inside the two leads
     ctx.font = `${isActive ? 'bold ' : ''}12px "JetBrains Mono", monospace`;
     ctx.fillStyle = isActive ? C.labelActive : C.labelMuted;
-    const labelX = side === 'left' ? cx - 80 : cx + 80;
-    ctx.textAlign = side === 'left' ? 'right' : 'left';
+    const labelX = (cx + coreEx) / 2;
+    ctx.textAlign = 'center';
     ctx.fillText(w.id, labelX, cy - 6);
     ctx.font = '11px "JetBrains Mono", monospace';
     ctx.fillText(`${w.voltage}V`, labelX, cy + 10);

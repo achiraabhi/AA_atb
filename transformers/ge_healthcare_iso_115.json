@@ -1,0 +1,81 @@
+{
+  "name": "GE Healthcare Iso-Transformer 115/115V",
+  "transformer_id": "ge_healthcare_iso_115",
+  "type": "isolating_transformer",
+  "rated_power_va": 500,
+  "rated_frequency_hz": 60,
+  "notes": "1:1 isolation transformer for medical equipment",
+  "primary": [
+    {
+      "id": "P1",
+      "winding_type": "basic_winding",
+      "start_pin": 1,
+      "end_pin": 2,
+      "voltage": 115,
+      "dot_polarity": true,
+      "relay_a": 1,
+      "relay_b": null,
+      "meas_channel": -1,
+      "taps": [],
+      "coords": {}
+    }
+  ],
+  "secondary": [
+    {
+      "id": "S1",
+      "winding_type": "basic_winding",
+      "start_pin": 7,
+      "end_pin": 8,
+      "voltage": 115,
+      "dot_polarity": true,
+      "relay_a": 2,
+      "relay_b": 17,
+      "meas_channel": 0,
+      "taps": [],
+      "coords": {}
+    }
+  ],
+  "tests": [
+    {
+      "from": "P1",
+      "to": "S1",
+      "expected_voltage": 115.0,
+      "tolerance_percent": 5.0,
+      "measurement_channel": 0,
+      "stabilization_delay_ms": 600,
+      "relay_map": {
+        "2": true,
+        "18": true,
+        "33": true,
+        "34": true
+      },
+      "description": "Primary 115V \u2192 Secondary 115V isolation check"
+    }
+  ],
+  "auto_matrix": {
+    "enabled": false,
+    "energize_winding": "P1",
+    "energize_tap_index": null
+  },
+  "ratio_rules": [
+    {
+      "id": "auto_91a5953a",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 115
+      },
+      "measurement_segment": {
+        "node_a": "S1",
+        "node_b": "S1:end",
+        "nominal_voltage": 115
+      },
+      "tolerance_percent": 5.0,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "S1  115V"
+    }
+  ]
+}

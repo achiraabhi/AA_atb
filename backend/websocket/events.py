@@ -29,6 +29,7 @@ EVT_RELAYS_CLEARED        = "relays_cleared"
 EVT_BATCH_SUMMARY         = "batch_summary"
 
 EVT_EXCITATION_CONFIG     = "excitation_config"   # broadcasts ratio params
+EVT_LIVE_VOLTAGES         = "live_voltages"        # V1/V2 from serial meters, every second
 
 # Client → Server commands (received over WS as an alternative to REST)
 CMD_START_TEST            = "start_test"

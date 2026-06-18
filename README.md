@@ -1,7 +1,7 @@
 # After-Assembling Test Bench (ATB)
 
-Industrial-grade desktop application for automated no-load testing of assembled transformers.  
-Built with Python + CustomTkinter. Runs fully in mock mode — no hardware required to develop or demo.
+Industrial-grade web application for automated no-load testing of assembled transformers.  
+Built with Python + FastAPI (backend) and a browser front-end. Drives a physical 34-relay board and dual voltage meters over serial.
 
 ---
 
@@ -15,7 +15,6 @@ Built with Python + CustomTkinter. Runs fully in mock mode — no hardware requi
 | **Auto-matrix test engine** | Derives full measurement sweep from topology — no hardcoded sequences |
 | **Animated diagram** | Live coil glow, current-flow particles, per-tap highlighting, PASS/FAIL flash |
 | **AUTO / MANUAL / STEP mode** | Full auto, manual gate, or single-step advance |
-| **Mock hardware** | Full simulation with no physical hardware required |
 | **CSV + JSON logging** | Timestamped results per session, viewable in-app |
 
 ---
@@ -24,8 +23,19 @@ Built with Python + CustomTkinter. Runs fully in mock mode — no hardware requi
 
 ```
 AA_atb/
-├── main.py                         Entry point
 ├── requirements.txt
+│
+├── backend/                        FastAPI web server
+│   ├── main.py                     App entry point + static file serving
+│   ├── api/routes.py               REST endpoints
+│   └── websocket/                  Live state push (manager, broadcaster, events)
+│
+├── web/static/                     Browser front-end served by the backend
+│   ├── index.html
+│   ├── app.js / canvas.js / editor.js
+│   └── style.css, fonts/
+│
+├── frontend/                       Optional React/Vite client (TypeScript)
 │
 ├── core/
 │   ├── config_loader.py            JSON scanner / parser / dataclasses
@@ -33,7 +43,6 @@ AA_atb/
 │   ├── sequence_manager.py         Resolves test steps from config
 │   ├── test_engine.py              Background test orchestrator (threading)
 │   ├── measurement_matrix_engine.py Auto-generates measurement sweep from topology
-│   ├── transformer_renderer.py     Canvas drawing + animation engine
 │   ├── validator.py                Config validation (errors / warnings / info)
 │   └── logger.py                   CSV/JSON logging + console feed
 │
@@ -45,17 +54,7 @@ AA_atb/
 │   ├── relay_controller.py         Full real relay controller with safety enforcement
 │   ├── routing_engine.py           Maps winding/tap pairs → [relay_a, relay_b, 33, 34]
 │   ├── measurement_manager.py      relay-switch → stabilize → sample → average cycle
-│   ├── serial_manager.py           Lifecycle manager for both serial connections
-│   └── mock_hardware.py            Simulated relay board + voltage meter
-│
-├── ui/
-│   ├── main_window.py              Root CTk window, layout, menu bar
-│   ├── visual_editor.py            Visual canvas transformer builder (primary editor)
-│   ├── editor_window.py            Legacy form-based editor (kept for reference)
-│   ├── transformer_canvas.py       Animated diagram widget (main window)
-│   ├── control_panel.py            Relay grid, test controls, progress
-│   ├── status_panel.py             Live measurement cards, history table
-│   └── dialogs.py                  Add transformer, view logs, about
+│   └── serial_manager.py           Lifecycle manager for both serial connections
 │
 ├── transformers/
 │   ├── transformer_a.json          GE Healthcare 115/115V isolation
@@ -78,15 +77,16 @@ AA_atb/
 pip install -r requirements.txt
 ```
 
-> `pyserial` is optional — the app runs in mock mode if no serial hardware is connected.
+> `pyserial` is required — the app drives the relay board and voltage meters over serial.
 
 ### 2. Run the application
 
 ```bash
-python main.py
+python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
-The app starts in **mock mode** — no relay board or voltage meter required.
+On the Raspberry Pi use `./start.sh`; on Windows use `start_web.bat`.
+Then open **http://localhost:8000** in a browser. Set the serial ports in `.env` first — the relay board must be connected or the backend will refuse to start.
 
 ### 3. Run a test
 
@@ -209,10 +209,12 @@ When `auto_matrix.enabled = true`, the test engine auto-generates the full measu
 
 ## Connecting Real Hardware
 
-1. **Relay MCU**: Hardware → Serial Connections… → set port + baud (default 115200) → Connect
-2. **Voltage Meter**: Same dialog → set meter port + baud (default 9600) → Connect
+Configure the serial ports in `.env` (copied from `.env.example`):
 
-The serial drivers (`relay_serial.py`, `voltage_meter_serial.py`) degrade gracefully — if `pyserial` is not installed or the port fails, the app continues in mock mode.
+1. **Relay MCU**: `SERIAL_PORT` + `SERIAL_BAUD` (default 115200)
+2. **Voltage Meters**: `V1_PORT`/`V1_BAUD` (energizing) and `V2_PORT`/`V2_BAUD` (measurement)
+
+The backend connects to the relay board at startup and **raises an error if the port is unavailable** — the physical board is required to run.
 
 ---
 
@@ -229,7 +231,6 @@ View in-app: **File → View Logs…**
 
 ## Development Notes
 
-- **Zero hardware required** — `MockHardwareManager` simulates relays + voltage meter
-- **Thread safety** — serial drivers use `threading.Lock`; all UI updates via `canvas.after(0, ...)`
+- **Thread safety** — serial drivers use `threading.Lock`; UI updates are pushed to the browser over WebSocket
 - **Config-driven** — routing is derived purely from JSON topology; no hardcoded test sequences
 - **Extensible** — subclass `RelayControllerInterface` / `VoltageReaderInterface` for custom hardware

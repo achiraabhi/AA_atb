@@ -1,12 +1,12 @@
 #!/bin/bash
-# ATB — Raspberry Pi one-shot setup script
+# ATB — Raspberry Pi setup script
 # Run once after copying the project to the Pi:
-#   bash setup_pi.sh
+#   bash setup_pi.sh           (venv + deps only, no systemd)
+#   sudo bash setup_pi.sh      (also installs systemd service for autostart)
 
 set -e
 
 INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
-SERVICE_FILE="/etc/systemd/system/atb.service"
 PI_USER="${SUDO_USER:-$(whoami)}"
 
 echo "============================================"
@@ -16,33 +16,61 @@ echo " Running as  : $PI_USER"
 echo "============================================"
 echo ""
 
-# ── 1. System packages ────────────────────────────────────────────────────────
-echo "[1/5] Installing system packages..."
-apt-get update -qq
-apt-get install -y python3-pip python3-venv
+# ── 1. System packages (requires sudo) ────────────────────────────────────────
+if [ "$(id -u)" -eq 0 ]; then
+    echo "[1/5] Installing system packages..."
+    apt-get update -qq
+    apt-get install -y python3-pip python3-venv
+    echo "[2/5] Adding $PI_USER to dialout group (serial port access)..."
+    usermod -aG dialout "$PI_USER"
+else
+    echo "[1/2] Skipping system packages (not root — run with sudo to install)"
+    echo "      python3-venv must already be installed"
+    echo ""
+fi
 
-# ── 2. Serial port permission ─────────────────────────────────────────────────
-echo "[2/5] Adding $PI_USER to dialout group (serial port access)..."
-usermod -aG dialout "$PI_USER"
-
-# ── 3. Python virtualenv + deps ───────────────────────────────────────────────
-echo "[3/5] Creating Python virtualenv and installing dependencies..."
+# ── 2. Python virtualenv + deps ───────────────────────────────────────────────
+echo "[$([ "$(id -u)" -eq 0 ] && echo "3" || echo "1")/$([ "$(id -u)" -eq 0 ] && echo "5" || echo "2")] Creating Python virtualenv and installing dependencies..."
 cd "$INSTALL_DIR"
-python3 -m venv venv
+
+if [ -d venv ] && [ -f venv/bin/python ]; then
+    echo "  venv already exists — upgrading packages..."
+else
+    python3 -m venv venv
+fi
+
 venv/bin/pip install --upgrade pip -q
 venv/bin/pip install -r requirements.txt -q
-echo "Dependencies installed."
+echo "  Dependencies installed."
 
-# ── 4. Create .env if not present ────────────────────────────────────────────
-echo "[4/5] Setting up .env config..."
+# ── 3. Create .env if not present ────────────────────────────────────────────
+echo "[$([ "$(id -u)" -eq 0 ] && echo "4" || echo "2")/$([ "$(id -u)" -eq 0 ] && echo "5" || echo "2")] Setting up .env config..."
 if [ ! -f "$INSTALL_DIR/.env" ]; then
     cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
-    echo "  Created .env from template — edit it to set HARDWARE_MODE=real and SERIAL_PORT"
+    echo "  Created .env from template — edit it to set SERIAL_PORT, V1_PORT and V2_PORT"
 else
     echo "  .env already exists, skipping."
 fi
 
-# ── 5. Install systemd service ────────────────────────────────────────────────
+# ── 4. Install systemd service (requires sudo) ────────────────────────────────
+if [ "$(id -u)" -ne 0 ]; then
+    echo ""
+    echo "============================================"
+    echo " Basic setup complete!"
+    echo ""
+    echo " Run the server:"
+    echo "   ./start.sh"
+    IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+    echo ""
+    echo " Open in browser: http://$IP:8000"
+    echo " (or http://localhost:8000 on the Pi itself)"
+    echo ""
+    echo " For autostart on boot, run: sudo bash setup_pi.sh"
+    echo "============================================"
+    exit 0
+fi
+
+SERVICE_FILE="/etc/systemd/system/atb.service"
 echo "[5/5] Installing systemd service..."
 
 cat > "$SERVICE_FILE" << EOF
@@ -67,20 +95,18 @@ EOF
 
 systemctl daemon-reload
 systemctl enable atb
-systemctl start atb
+systemctl restart atb
 
 echo ""
 echo "============================================"
-echo " Setup complete!"
+echo " Full setup complete!"
 echo ""
 echo " Service status : sudo systemctl status atb"
 echo " Live logs      : journalctl -u atb -f"
 echo " Stop           : sudo systemctl stop atb"
 echo " Restart        : sudo systemctl restart atb"
 echo ""
-
-# Detect local IP
-IP=$(hostname -I | awk '{print $1}')
+IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
 echo " Open in browser: http://$IP:8000"
 echo "============================================"
 echo ""

@@ -1,12 +1,12 @@
 """
 Continuous serial reader for the external voltage meter.
 
-The meter independently streams voltage readings to the PC; this module runs a
-background reader thread, buffers recent samples, and exposes a simple API for
-the test engine to collect averaged, noise-filtered readings.
+The meter independently streams voltage readings; this module runs a
+background reader thread, buffers recent samples, and exposes a simple API.
 
-pyserial is optional — when unavailable the object stays disconnected and all
-sample-collection methods return empty / None.
+Arduino/MCU boards trigger a reset when the serial port is first opened
+(DTR pulse). INIT_DELAY_S waits past that reset before reading begins.
+On disconnect/error the reader thread attempts to reopen the port automatically.
 """
 import collections
 import threading
@@ -29,19 +29,18 @@ except ImportError:
 class VoltageMeterSerial:
     """
     Background serial reader for a continuously-streaming voltage meter.
-
-    Thread safety
-    -------------
-    The internal ring-buffer is protected by a lock.  All public methods
-    (get_latest, get_samples, get_average, is_stable) are safe to call from
-    any thread including the Tk UI thread.
+    Handles Arduino reset-on-open and automatic reconnection on error.
     """
 
-    BUFFER_SIZE    = 200    # maximum stored samples
-    STALE_TIMEOUT  = 3.0    # seconds before a reading is considered stale
+    BUFFER_SIZE     = 200
+    STALE_TIMEOUT   = 3.0
+    INIT_DELAY_S    = 4.0   # wait past Arduino DTR-reset before first read
+    RECONNECT_DELAY = 3.0   # seconds between reconnect attempts on error
 
     def __init__(self) -> None:
-        self._port          = None
+        self._port_name: Optional[str]     = None
+        self._baud:      int               = DEFAULT_BAUD_METER
+        self._port                         = None
         self._connected     = False
         self._stop_flag     = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -63,14 +62,22 @@ class VoltageMeterSerial:
         if not _SERIAL_OK:
             log.warning("pyserial not installed — voltage meter serial unavailable")
             return False
+        self._port_name = port
+        self._baud      = baud
         try:
-            self._port = _serial.Serial(port, baud, timeout=1.0)
+            self._port = _serial.Serial()
+            self._port.port     = port
+            self._port.baudrate = baud
+            self._port.timeout  = 1.0
+            self._port.dsrdtr   = False  # don't assert DTR (reduces reset issues)
+            self._port.rtscts   = False
+            self._port.open()
             self._connected = True
             self._stop_flag.clear()
             self._thread = threading.Thread(
                 target=self._reader_loop,
                 daemon=True,
-                name="VoltageMeterSerial",
+                name=f"VoltageMeter-{port}",
             )
             self._thread.start()
             log.info(f"Voltage meter connected on {port} @ {baud}")
@@ -83,56 +90,37 @@ class VoltageMeterSerial:
         self._stop_flag.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2.0)
-        if self._port and getattr(self._port, "is_open", False):
-            try:
-                self._port.close()
-            except Exception:
-                pass
-        self._port = None
+        self._close_port()
         self._connected = False
 
     # ── reading API ───────────────────────────────────────────────────────
 
     def get_latest(self) -> Optional[float]:
-        """Return the most recent voltage sample, or None if buffer is empty."""
         with self._lock:
             return self._buffer[-1] if self._buffer else None
 
     def get_samples(self, n: int = 10) -> List[float]:
-        """Return up to the last n samples (oldest first)."""
         with self._lock:
             buf = list(self._buffer)
         return buf[-n:] if len(buf) >= n else buf
 
     def get_average(self, n: int = 10) -> Optional[float]:
-        """Return the mean of the last n samples, or None if insufficient data."""
         samples = self.get_samples(n)
-        if not samples:
-            return None
-        return sum(samples) / len(samples)
+        return sum(samples) / len(samples) if samples else None
 
     def is_stable(self, n: int = 10, max_spread_v: float = 0.2) -> bool:
-        """
-        Return True when the last n samples span less than max_spread_v volts.
-        Used for noise validation before accepting a reading.
-        """
         samples = self.get_samples(n)
         if len(samples) < 2:
             return False
         return (max(samples) - min(samples)) <= max_spread_v
 
     def is_fresh(self) -> bool:
-        """True if a sample arrived within STALE_TIMEOUT seconds."""
         return (time.time() - self._last_ts) < self.STALE_TIMEOUT
 
-    # ── VoltageReaderInterface compatibility ──────────────────────────────
+    # ── VoltageReaderInterface shim ───────────────────────────────────────
 
     def read_voltage(self, channel: int = 0):
-        """
-        Legacy compatibility shim for VoltageReaderInterface callers.
-        channel is ignored — the meter has one output stream.
-        """
-        from hardware.hardware_interface import VoltageReading, HardwareStatus
+        from hardware.hardware_interface import VoltageReading
         v = self.get_latest()
         if v is None:
             return VoltageReading(
@@ -146,13 +134,36 @@ class VoltageMeterSerial:
         from hardware.hardware_interface import HardwareStatus
         return HardwareStatus.CONNECTED if self._connected else HardwareStatus.DISCONNECTED
 
-    # ── background reader ─────────────────────────────────────────────────
+    # ── internal ──────────────────────────────────────────────────────────
+
+    def _close_port(self) -> None:
+        if self._port:
+            try:
+                if self._port.is_open:
+                    self._port.close()
+            except Exception:
+                pass
 
     def _reader_loop(self) -> None:
+        # Wait past the Arduino DTR-reset cycle before reading
+        deadline = time.time() + self.INIT_DELAY_S
+        while time.time() < deadline and not self._stop_flag.is_set():
+            time.sleep(0.1)
+
+        if self._port and self._port.is_open:
+            try:
+                self._port.reset_input_buffer()
+            except Exception:
+                pass
+
         while not self._stop_flag.is_set():
             try:
                 if self._port and self._port.is_open:
                     raw = self._port.readline()
+                    if not raw:
+                        # Empty read — device may be momentarily resetting
+                        time.sleep(0.2)
+                        continue
                     line = raw.decode("ascii", errors="replace")
                     v = parse_voltage(line)
                     if v is not None:
@@ -160,7 +171,24 @@ class VoltageMeterSerial:
                             self._buffer.append(v)
                         self._last_ts = time.time()
                 else:
-                    time.sleep(0.05)
+                    time.sleep(0.1)
             except Exception as exc:
-                log.error(f"Voltage meter read error: {exc}")
-                time.sleep(0.1)
+                log.warning(f"Voltage meter {self._port_name} error — reconnecting: {exc}")
+                self._connected = False
+                self._close_port()
+                # Wait, then try to reopen
+                for _ in range(int(self.RECONNECT_DELAY / 0.1)):
+                    if self._stop_flag.is_set():
+                        return
+                    time.sleep(0.1)
+                if self._stop_flag.is_set():
+                    return
+                try:
+                    self._port.open()
+                    time.sleep(self.INIT_DELAY_S)
+                    if self._port.is_open:
+                        self._port.reset_input_buffer()
+                        self._connected = True
+                        log.info(f"Voltage meter {self._port_name} reconnected")
+                except Exception as reopen_exc:
+                    log.error(f"Voltage meter {self._port_name} reopen failed: {reopen_exc}")

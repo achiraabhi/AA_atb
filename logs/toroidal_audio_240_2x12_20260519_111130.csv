@@ -1,3 +1,0 @@
-timestamp,transformer_id,operator,step,from_winding,to_winding,measured_v,expected_v,tolerance_pct,deviation_pct,result,error
-2026-05-19T11:11:30.628589,toroidal_audio_240_2x12,Unknown,1,P1,S1,11.713,12.000,5.0,2.39,PASS,
-2026-05-19T11:11:31.642570,toroidal_audio_240_2x12,Unknown,2,P1,S2,12.170,12.000,5.0,1.42,PASS,

@@ -1,8 +1,0 @@
-timestamp,transformer_id,operator,step,from_winding,to_winding,measured_v,expected_v,tolerance_pct,deviation_pct,result,error
-2026-05-19T12:13:27.111225,multi_tap_200_250,Unknown,1,P1,P1,197.169,200.000,5.0,1.42,PASS,
-2026-05-19T12:13:28.134051,multi_tap_200_250,Unknown,2,P1,P1,208.066,208.000,5.0,0.03,PASS,
-2026-05-19T12:13:29.156507,multi_tap_200_250,Unknown,3,P1,P1,217.278,220.000,5.0,1.24,PASS,
-2026-05-19T12:13:30.186044,multi_tap_200_250,Unknown,4,P1,P1,239.369,240.000,5.0,0.26,PASS,
-2026-05-19T12:13:31.202482,multi_tap_200_250,Unknown,5,P1,P1,247.392,250.000,5.0,1.04,PASS,
-2026-05-19T12:13:32.221265,multi_tap_200_250,Unknown,6,P1,S1,113.301,115.000,5.0,1.48,PASS,
-2026-05-19T12:13:33.251827,multi_tap_200_250,Unknown,7,P1,S2,24.127,24.000,5.0,0.53,PASS,

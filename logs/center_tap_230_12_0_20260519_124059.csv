@@ -1,3 +1,0 @@
-timestamp,transformer_id,operator,step,from_winding,to_winding,measured_v,expected_v,tolerance_pct,deviation_pct,result,error
-2026-05-19T12:40:59.797685,center_tap_230_12_0,Unknown,1,P1,S1,24.468,24.000,5.0,1.95,PASS,
-2026-05-19T12:41:00.832850,center_tap_230_12_0,Unknown,2,P1,S1,11.714,12.000,5.0,2.38,PASS,

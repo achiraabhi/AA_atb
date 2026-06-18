@@ -37,7 +37,6 @@ from core.state_manager import StateManager
 from core.sequence_manager import SequenceManager
 from core.logger import TestLogger
 from core.test_engine import TestEngine
-from hardware.mock_hardware import MockHardwareManager
 
 from backend.api.routes import router as api_router
 from backend.websocket.manager import WebSocketManager
@@ -46,8 +45,9 @@ from backend.websocket.events import (
     CMD_START_TEST, CMD_STOP_TEST, CMD_PAUSE_TEST, CMD_RESUME_TEST,
     CMD_NEXT_STEP, CMD_EMERGENCY_STOP, CMD_SELECT_TRANSFORMER, CMD_SET_OPERATOR,
     CMD_NEXT_UNIT, CMD_SKIP_UNIT, CMD_RETRY_UNIT, CMD_COMPLETE_BATCH,
-    CMD_SET_EXCITATION,
+    CMD_SET_EXCITATION, EVT_LIVE_VOLTAGES,
 )
+from hardware.dual_voltage_service import DualVoltageService
 
 logging.basicConfig(
     level=logging.INFO,
@@ -69,28 +69,53 @@ async def lifespan(app: FastAPI):
 
     state_manager   = StateManager()
 
-    # Hardware: set HARDWARE_MODE=real in .env to use physical relay board
-    hardware_mode = os.getenv("HARDWARE_MODE", "mock").lower()
-    if hardware_mode == "real":
-        from hardware.relay_controller import RelayController
-        serial_port = os.getenv("SERIAL_PORT", "/dev/ttyUSB0")
-        baud        = int(os.getenv("SERIAL_BAUD", "115200"))
-        hardware = RelayController()
-        ok = hardware.connect(serial_port, baud)
-        if not ok:
-            log.warning(f"Real hardware connect failed on {serial_port} — falling back to mock")
-            hardware = MockHardwareManager()
-            hardware.initialize()
-        else:
-            log.info(f"Real relay board connected on {serial_port} @ {baud}")
-    else:
-        hardware = MockHardwareManager()
-        hardware.initialize()
-        log.info("Running with mock hardware (simulation mode)")
+    # ── auto-detect serial devices by behaviour ─────────────────────────────
+    # Probe every serial port: voltmeters stream VOLTAGE:, the relay answers
+    # PING. This makes assignment independent of unstable /dev/ttyACM* numbers.
+    from hardware.port_scanner import resolve_assignments
+    from hardware.relay_controller import RelayController
+    from hardware.hybrid_hardware import HybridHardwareManager
 
-    logger          = TestLogger()
-    seq_manager     = SequenceManager()
-    test_engine     = TestEngine(state_manager, seq_manager, config_loader, hardware, logger)
+    baud = int(os.getenv("SERIAL_BAUD", "115200"))
+    detected = resolve_assignments(
+        relay_cfg=os.getenv("SERIAL_PORT"),
+        v1_cfg=os.getenv("V1_PORT"),
+        v2_cfg=os.getenv("V2_PORT"),
+        baud=baud,
+    )
+    log.info(f"Serial scan: {detected['types']}")
+    app.state.port_types = detected["types"]
+
+    # Dual voltage meter service — connect detected V1/V2.
+    # V1 = energizing voltage (display only), V2 = measurement voltage (TestEngine).
+    volt_service = DualVoltageService()
+    volt_service.connect(
+        v1_port=detected["v1"],
+        v1_baud=int(os.getenv("V1_BAUD", "115200")),
+        v2_port=detected["v2"],
+        v2_baud=int(os.getenv("V2_BAUD", "115200")),
+    )
+    app.state.volt_service = volt_service
+    log.info(f"Voltmeters → V1: {detected['v1'] or 'none'} | V2: {detected['v2'] or 'none'}")
+
+    # Relay board — only connect when one was actually detected, so we never
+    # squat a voltmeter's port. Server still starts if absent (UI loads,
+    # hardware reports DISCONNECTED, tests can't run until it's plugged in).
+    relay_ctrl = RelayController()
+    relay_port = detected["relay"]
+    if relay_port and relay_ctrl.connect(relay_port, baud):
+        log.info(f"Real relay board on {relay_port} @ {baud}")
+        app.state.relay_port = relay_port
+    else:
+        log.warning("Relay board not detected — starting in disconnected state.")
+        app.state.relay_port = None
+    # Wire V2 meter into the hardware manager so TestEngine reads real voltages
+    hardware = HybridHardwareManager(relay_ctrl, v2_meter=volt_service._v2)
+    hardware.initialize()
+
+    logger      = TestLogger()
+    seq_manager = SequenceManager()
+    test_engine = TestEngine(state_manager, seq_manager, config_loader, hardware, logger)
 
     # WebSocket layer
     ws_manager      = WebSocketManager()
@@ -105,10 +130,20 @@ async def lifespan(app: FastAPI):
     app.state.broadcaster     = broadcaster
     app.state.event_loop      = loop
 
+    # Background task: broadcast V1/V2 to all WS clients every second
+    async def _voltage_broadcast_loop():
+        while True:
+            readings = volt_service.get_readings()
+            await ws_manager.broadcast({"type": EVT_LIVE_VOLTAGES, "data": readings})
+            await asyncio.sleep(1.0)
+
+    broadcast_task = asyncio.create_task(_voltage_broadcast_loop())
+
     log.info("ATB backend started — http://localhost:8000")
     yield
 
     # Cleanup
+    broadcast_task.cancel()
     test_engine.stop()
     hardware.shutdown()
     log.info("ATB backend shut down")
@@ -168,6 +203,9 @@ async def websocket_endpoint(ws: WebSocket):
             }
         }
         await ws.send_json(snapshot)
+        # Also send current V1/V2 immediately so the bar isn't blank
+        volt_readings = app.state.volt_service.get_readings()
+        await ws.send_json({"type": EVT_LIVE_VOLTAGES, "data": volt_readings})
     except Exception as e:
         log.warning(f"[WS] Snapshot send failed: {e}")
 

@@ -387,7 +387,7 @@ class StateManager:
             "is_ratio_step": is_ratio_step,
         })
 
-    def set_measurement(self, voltage: float) -> None:
+    def set_measurement(self, voltage: Optional[float]) -> None:
         with self._lock:
             self._current_measurement = voltage
         self._notify("measurement", voltage)

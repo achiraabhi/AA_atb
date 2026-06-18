@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from core.state_manager import AppState, TestMode
+from hardware.hardware_interface import HardwareStatus
 
 router = APIRouter(prefix="/api")
 
@@ -41,9 +42,23 @@ class SerialConnectRequest(BaseModel):
     meter_baud: int = 9600
 
 
+class AssignVoltmeterRequest(BaseModel):
+    target: str           # "v1" or "v2"
+    port: str
+    baud: int = 115200
+
+
 class SaveTransformerRequest(BaseModel):
     data: Dict[str, Any]
     filename: Optional[str] = None
+
+
+class GenerateRulesRequest(BaseModel):
+    excitation_winding_id: str
+    energize_tap_index: Optional[int] = None
+    tolerance_percent: float = 5.0
+    minimum_absolute_delta: float = 0.1
+    save: bool = False
 
 
 # ── transformer catalogue ─────────────────────────────────────────────────────
@@ -79,6 +94,126 @@ def save_transformer(body: SaveTransformerRequest, request: Request):
     cfg = _get(request, "config_loader")
     path = cfg.save_transformer(body.data, body.filename)
     return {"saved": True, "path": path}
+
+
+# Relay groups for auto-assignment (mirror hardware.protocol ranges)
+_RL_A_MIN, _RL_A_MAX = 1, 16     # Side-A relays → voltmeter + probe
+_RL_B_MIN, _RL_B_MAX = 17, 32    # Side-B relays → voltmeter − probe
+
+
+def _auto_assign_relays(raw: Dict[str, Any], ew_id: str) -> None:
+    """
+    Auto-assign relays to every winding/tap node, following the bench rules:
+
+      • Energising winding:  start → Group A,  end → NO relay (common reference).
+      • Energising winding taps:  one relay each, from Group A.
+      • Other windings:  start → Group A,  end → Group B.
+      • Other windings' taps:  one relay each, from Group B.
+
+    Mutates ``raw`` in place. Raises HTTPException(400) if a group is exhausted.
+    """
+    counters = {"a": _RL_A_MIN, "b": _RL_B_MIN}
+
+    def take(group: str) -> int:
+        if group == "a":
+            if counters["a"] > _RL_A_MAX:
+                raise HTTPException(400, "Ran out of Group A relays (RL1–RL16)")
+            v = counters["a"]; counters["a"] += 1
+        else:
+            if counters["b"] > _RL_B_MAX:
+                raise HTTPException(400, "Ran out of Group B relays (RL17–RL32)")
+            v = counters["b"]; counters["b"] += 1
+        return v
+
+    windings = (raw.get("primary") or []) + (raw.get("secondary") or [])
+    # Energising winding first so it takes the lowest relay numbers.
+    ordered = sorted(windings, key=lambda w: 0 if w.get("id") == ew_id else 1)
+
+    for w in ordered:
+        if w.get("id") == ew_id:
+            w["relay_a"] = take("a")          # start → Group A
+            w["relay_b"] = None               # end → no relay (common)
+            for tap in (w.get("taps") or []):
+                tap["relay_a"] = take("a")    # energising tap → Group A
+                tap["relay_b"] = None
+        else:
+            w["relay_a"] = take("a")          # start → Group A
+            w["relay_b"] = take("b")          # end → Group B
+            for tap in (w.get("taps") or []):
+                tap["relay_a"] = None
+                tap["relay_b"] = take("b")    # other tap → Group B
+
+
+@router.post("/transformers/{transformer_id}/generate-rules")
+def generate_rules(transformer_id: str, body: GenerateRulesRequest, request: Request):
+    import uuid
+    from core.measurement_matrix_engine import MeasurementMatrixEngine
+
+    cfg_loader = _get(request, "config_loader")
+    config = cfg_loader.get_transformer(transformer_id)
+    if not config:
+        raise HTTPException(404, f"Transformer '{transformer_id}' not found")
+
+    try:
+        steps = MeasurementMatrixEngine().build_matrix(
+            config,
+            excitation_winding_id=body.excitation_winding_id,
+            energize_tap_index=body.energize_tap_index,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+    ew_id  = body.excitation_winding_id
+    et_idx = body.energize_tap_index
+
+    # Auto-assign relays onto the winding/tap nodes per the bench rules.
+    raw = cfg_loader.get_raw_json(transformer_id)
+    _auto_assign_relays(raw, ew_id)
+
+    # Excitation segment node_b: tap reference or full winding end
+    exc_node_b = f"{ew_id}:tap{et_idx}" if et_idx is not None else f"{ew_id}:end"
+
+    rules = []
+    for step in steps:
+        to_wid  = step.to_winding_id
+        to_tap  = step.to_tap_index
+        meas_node_b = f"{to_wid}:tap{to_tap}" if to_tap is not None else f"{to_wid}:end"
+        rules.append({
+            "id": f"auto_{uuid.uuid4().hex[:8]}",
+            "excitation_segment": {
+                "node_a": ew_id,
+                "node_b": exc_node_b,
+                "nominal_voltage": step.nominal_input_voltage,
+            },
+            "measurement_segment": {
+                "node_a": to_wid,
+                "node_b": meas_node_b,
+                "nominal_voltage": step.nominal_output_voltage,
+            },
+            "tolerance_percent":      body.tolerance_percent,
+            "minimum_absolute_delta": body.minimum_absolute_delta,
+            "measurement_type": "AC",
+            "critical": True,
+            "enabled":  True,
+            "_label":   step.description,
+        })
+
+    # Persist rules + auto_matrix alongside the relay assignments already on `raw`.
+    raw["ratio_rules"] = rules
+    raw["auto_matrix"] = {
+        "enabled": False,
+        "energize_winding": ew_id,
+        "energize_tap_index": et_idx,
+    }
+    if body.save:
+        cfg_loader.save_transformer(raw)
+
+    return {
+        "rules":     rules,
+        "count":     len(rules),
+        "primary":   raw.get("primary", []),
+        "secondary": raw.get("secondary", []),
+    }
 
 
 @router.delete("/transformers/{transformer_id}")
@@ -268,8 +403,61 @@ def hardware_status(request: Request):
 
 @router.post("/hardware/connect")
 def hardware_connect(body: SerialConnectRequest, request: Request):
-    # In mock mode this is a no-op; real serial connection handled by serial_manager
-    return {"connected": True, "mode": "mock"}
+    # Serial connection is established at startup from .env; report live status.
+    hw = _get(request, "hardware")
+    health = hw.health_check()
+    connected = all(v == HardwareStatus.CONNECTED for v in health.values())
+    return {"connected": connected, "mode": "real"}
+
+
+@router.get("/serial/ports")
+def list_serial_ports(request: Request):
+    """
+    Scan the host and classify each serial port (voltmeter / relay / unknown)
+    so the operator can assign V1/V2. Ports the app already holds open are
+    reported from their known role instead of being re-probed.
+    """
+    from hardware import port_scanner
+
+    volt       = _get(request, "volt_service")
+    relay_port = getattr(request.app.state, "relay_port", None)
+    readings   = volt.get_readings()
+
+    v1_port = getattr(volt._v1, "_port_name", None)
+    v2_port = getattr(volt._v2, "_port_name", None)
+
+    # Map device → role for ports we hold open (don't probe these).
+    assigned_map: Dict[str, str] = {}
+    if readings.get("v1_connected") and v1_port:
+        assigned_map[v1_port] = "v1"
+    if readings.get("v2_connected") and v2_port:
+        assigned_map[v2_port] = "v2"
+    if relay_port:
+        assigned_map[relay_port] = "relay"
+
+    held = set(assigned_map)
+    known = {dev: ("relay" if role == "relay" else "voltmeter")
+             for dev, role in assigned_map.items()}
+
+    ports = port_scanner.scan(skip=held, known=known)
+    for p in ports:
+        p["assigned"] = assigned_map.get(p["device"])
+    return {"ports": ports}
+
+
+@router.post("/serial/voltmeter")
+def assign_voltmeter(body: AssignVoltmeterRequest, request: Request):
+    """Manually assign a serial port to the V1 or V2 voltage meter at runtime."""
+    if body.target.lower() not in ("v1", "v2"):
+        raise HTTPException(status_code=400, detail="target must be 'v1' or 'v2'")
+    volt = _get(request, "volt_service")
+    ok = volt.set_meter_port(body.target, body.port, body.baud)
+    if not ok:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not open {body.port} for {body.target.upper()}",
+        )
+    return {"connected": True, "target": body.target.lower(), "port": body.port}
 
 
 # ── logs ──────────────────────────────────────────────────────────────────────

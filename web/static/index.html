@@ -72,6 +72,25 @@
       <button id="btn-complete-batch" class="btn btn-sm btn-complete-batch">◼ Complete Batch</button>
     </div>
 
+    <!-- Live voltage bar — always visible, updates every second from serial ports -->
+    <div id="voltage-bar" class="voltage-bar">
+      <div class="vbar-item">
+        <span class="vbar-dot" id="vbar-v1-dot"></span>
+        <span class="vbar-label">V1 — ENERGIZING</span>
+        <span id="vbar-v1" class="vbar-value">—</span>
+        <span class="vbar-unit">V</span>
+      </div>
+      <div class="vbar-divider"></div>
+      <div class="vbar-item">
+        <span class="vbar-dot" id="vbar-v2-dot"></span>
+        <span class="vbar-label">V2 — MEASUREMENT</span>
+        <span id="vbar-v2" class="vbar-value">—</span>
+        <span class="vbar-unit">V</span>
+      </div>
+      <div class="vbar-divider"></div>
+      <button id="btn-ports" class="btn btn-sm vbar-ports-btn" title="Scan &amp; assign serial ports">⚙ Ports</button>
+    </div>
+
     <div class="dash-layout">
 
       <!-- Left: control panel -->
@@ -357,15 +376,36 @@
               <label class="label">Notes</label>
               <textarea id="ed-notes" class="input" rows="2"></textarea>
             </div>
-            <div class="field">
-              <div class="checkbox-row">
-                <input id="ed-auto-matrix" type="checkbox" checked />
-                <label for="ed-auto-matrix" class="label">Auto-Matrix test generation</label>
+            <!-- hidden compat inputs kept for _syncMetaFromForm -->
+            <input id="ed-auto-matrix" type="checkbox" style="display:none" />
+            <input id="ed-energize"    type="hidden"   value="" />
+
+            <!-- Generate Rules section -->
+            <div class="gen-rules-section">
+              <div class="gen-rules-hdr">
+                <span class="gen-rules-title">Generate Rules</span>
               </div>
-            </div>
-            <div class="field">
-              <label class="label">Energize Winding</label>
-              <input id="ed-energize" class="input" placeholder="P1" value="P1" />
+              <div class="field">
+                <label class="label">Energize Winding</label>
+                <select id="ed-energize-sel" class="input input-sm">
+                  <option value="">— Select winding —</option>
+                </select>
+              </div>
+              <div class="field" id="ed-energize-tap-field" style="display:none">
+                <label class="label">Energize Tap</label>
+                <select id="ed-energize-tap" class="input input-sm">
+                  <option value="">Full winding</option>
+                </select>
+              </div>
+              <div class="field">
+                <label class="label">Tolerance (%)</label>
+                <input id="ed-gen-tolerance" type="number" class="input input-sm"
+                       value="5" min="0" max="100" step="0.5" />
+              </div>
+              <button id="ed-generate-rules-btn" class="btn btn-sm gen-rules-btn">
+                Generate Rules
+              </button>
+              <div id="ed-gen-status" class="ed-gen-status hidden"></div>
             </div>
           </div>
           <div id="editor-error" class="editor-error hidden"></div>
@@ -522,21 +562,6 @@
                   <input id="insp-rule-min-delta" type="number" class="input" step="0.01" min="0" value="0.1" title="Hybrid tolerance floor — prevents adjacent-voltage confusion" />
                 </div>
               </div>
-              <div class="field-row">
-                <div class="field">
-                  <label class="label">Type</label>
-                  <select id="insp-rule-type" class="input">
-                    <option value="AC">AC</option>
-                    <option value="DC">DC</option>
-                  </select>
-                </div>
-                <div class="field" style="justify-content:flex-end;padding-top:18px">
-                  <label class="checkbox-row">
-                    <input id="insp-rule-critical" type="checkbox" checked />
-                    <span class="label">Critical</span>
-                  </label>
-                </div>
-              </div>
             </div>
             <div class="insp-actions">
               <button id="insp-rule-delete" class="btn btn-sm btn-danger" style="width:100%">Delete Rule</button>
@@ -649,8 +674,37 @@
 </div>
 <div id="rp-backdrop" class="rp-backdrop hidden"></div>
 
-<script src="/static/canvas.js"></script>
-<script src="/static/editor.js"></script>
-<script src="/static/app.js"></script>
+<!-- Serial port assignment modal -->
+<div id="ports-backdrop" class="rp-backdrop hidden"></div>
+<div id="ports-modal" class="ports-modal hidden">
+  <div class="rp-header">
+    <span>Voltage Meter Serial Ports</span>
+    <button id="ports-close" class="rp-close">✕</button>
+  </div>
+  <div class="ports-body">
+    <div class="ports-toolbar">
+      <button id="ports-scan" class="btn btn-sm">↻ Scan Ports</button>
+      <span id="ports-status" class="muted"></span>
+    </div>
+    <div class="ports-row">
+      <label class="ports-label">V1 — Energizing</label>
+      <select id="ports-v1" class="ports-select"></select>
+      <button id="ports-assign-v1" class="btn btn-sm">Assign</button>
+    </div>
+    <div class="ports-row">
+      <label class="ports-label">V2 — Measurement</label>
+      <select id="ports-v2" class="ports-select"></select>
+      <button id="ports-assign-v2" class="btn btn-sm">Assign</button>
+    </div>
+    <div class="ports-baud-row">
+      <label class="ports-label">Baud</label>
+      <input id="ports-baud" class="ports-select" type="number" value="115200" />
+    </div>
+  </div>
+</div>
+
+<script src="/static/canvas.js?v=7"></script>
+<script src="/static/editor.js?v=7"></script>
+<script src="/static/app.js?v=9"></script>
 </body>
 </html>

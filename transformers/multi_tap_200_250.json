@@ -1,0 +1,274 @@
+{
+  "name": "Multi-Tap Primary 200-250V / Dual Secondary",
+  "transformer_id": "multi_tap_200_250",
+  "type": "multi_tap_transformer",
+  "rated_power_va": 1000,
+  "rated_frequency_hz": 50,
+  "notes": "Primary tapped for 200/208/220/230/240/250V mains. Secondary 115V + 24V.",
+  "primary": [
+    {
+      "id": "P1",
+      "winding_type": "tapped_winding",
+      "start_pin": 2,
+      "end_pin": 10,
+      "voltage": 250,
+      "dot_polarity": true,
+      "relay_a": 1,
+      "relay_b": null,
+      "meas_channel": -1,
+      "taps": [
+        {
+          "pin": 5,
+          "voltage": 200,
+          "label": "200V",
+          "relay_a": 2,
+          "relay_b": null,
+          "meas_channel": 2
+        },
+        {
+          "pin": 6,
+          "voltage": 208,
+          "label": "208V",
+          "relay_a": 3,
+          "relay_b": null,
+          "meas_channel": 3
+        },
+        {
+          "pin": 7,
+          "voltage": 220,
+          "label": "220V",
+          "relay_a": 4,
+          "relay_b": null,
+          "meas_channel": 4
+        },
+        {
+          "pin": 8,
+          "voltage": 230,
+          "label": "230V",
+          "relay_a": 5,
+          "relay_b": null,
+          "meas_channel": 5
+        },
+        {
+          "pin": 9,
+          "voltage": 240,
+          "label": "240V",
+          "relay_a": 6,
+          "relay_b": null,
+          "meas_channel": 6
+        },
+        {
+          "pin": 10,
+          "voltage": 250,
+          "label": "250V",
+          "relay_a": 7,
+          "relay_b": null,
+          "meas_channel": 7
+        }
+      ],
+      "coords": {}
+    }
+  ],
+  "secondary": [
+    {
+      "id": "S1",
+      "winding_type": "basic_winding",
+      "start_pin": 14,
+      "end_pin": 15,
+      "voltage": 115,
+      "dot_polarity": true,
+      "relay_a": 8,
+      "relay_b": 17,
+      "meas_channel": 0,
+      "taps": [],
+      "coords": {}
+    },
+    {
+      "id": "S2",
+      "winding_type": "basic_winding",
+      "start_pin": 16,
+      "end_pin": 17,
+      "voltage": 24,
+      "dot_polarity": false,
+      "relay_a": 9,
+      "relay_b": 18,
+      "meas_channel": 1,
+      "taps": [],
+      "coords": {}
+    }
+  ],
+  "tests": [
+    {
+      "from": "P1",
+      "to": "S1",
+      "from_tap_index": 3,
+      "expected_voltage": 115,
+      "tolerance_percent": 5,
+      "measurement_channel": 0,
+      "stabilization_delay_ms": 500,
+      "relay_map": {
+        "3": true,
+        "23": true,
+        "33": true,
+        "34": true
+      },
+      "description": "P1 @ 230V tap \u2192 S1 (115V check)"
+    },
+    {
+      "from": "P1",
+      "to": "S2",
+      "from_tap_index": 3,
+      "expected_voltage": 24,
+      "tolerance_percent": 5,
+      "measurement_channel": 1,
+      "stabilization_delay_ms": 500,
+      "relay_map": {
+        "4": true,
+        "24": true,
+        "33": true,
+        "34": true
+      },
+      "description": "P1 @ 230V tap \u2192 S2 (24V check)"
+    }
+  ],
+  "auto_matrix": {
+    "enabled": false,
+    "energize_winding": "P1",
+    "energize_tap_index": 3
+  },
+  "ratio_rules": [
+    {
+      "id": "auto_6e0c7227",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:tap3",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "P1",
+        "node_b": "P1:tap0",
+        "nominal_voltage": 200
+      },
+      "tolerance_percent": 5,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "P1 own tap: 200V  (200.0V)"
+    },
+    {
+      "id": "auto_3b774e41",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:tap3",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "P1",
+        "node_b": "P1:tap1",
+        "nominal_voltage": 208
+      },
+      "tolerance_percent": 5,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "P1 own tap: 208V  (208.0V)"
+    },
+    {
+      "id": "auto_c03d97a7",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:tap3",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "P1",
+        "node_b": "P1:tap2",
+        "nominal_voltage": 220
+      },
+      "tolerance_percent": 5,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "P1 own tap: 220V  (220.0V)"
+    },
+    {
+      "id": "auto_ebae40e4",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:tap3",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "P1",
+        "node_b": "P1:tap4",
+        "nominal_voltage": 240
+      },
+      "tolerance_percent": 5,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "P1 own tap: 240V  (240.0V)"
+    },
+    {
+      "id": "auto_424868bf",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:tap3",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "P1",
+        "node_b": "P1:tap5",
+        "nominal_voltage": 250
+      },
+      "tolerance_percent": 5,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "P1 own tap: 250V  (250.0V)"
+    },
+    {
+      "id": "auto_77bdb647",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:tap3",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S1",
+        "node_b": "S1:end",
+        "nominal_voltage": 115
+      },
+      "tolerance_percent": 5,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "S1  115V"
+    },
+    {
+      "id": "auto_85579ffa",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:tap3",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S2",
+        "node_b": "S2:end",
+        "nominal_voltage": 24
+      },
+      "tolerance_percent": 5,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "S2  24V"
+    }
+  ]
+}
