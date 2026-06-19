@@ -18,11 +18,10 @@ JSON winding fields used:
   relay_b : int | None   ← RL17-32 connected to end_pin    (voltmeter − probe)
 
 JSON tap dict fields used:
-  relay_a : int | None   ← RL1-16 connected to tap_pin    (voltmeter + probe)
   relay_b : int | None   ← RL17-32 connected to tap_pin   (voltmeter − probe)
 
-A tap that has both relay_a and relay_b can participate in measurements from
-either direction (start→tap or tap→end).
+A tap gets a SINGLE relay on the B-side (− bus). It is always measured
+start→tap: winding.relay_a (start pin, + bus) paired with tap.relay_b.
 """
 from typing import Dict, List, Optional
 
@@ -71,34 +70,17 @@ class RoutingEngine:
             )
         return self._build(relay_a, relay_b, context=f"winding {winding.id} tap start→tap")
 
-    def resolve_tap_to_end(self, winding, tap: dict) -> List[int]:
-        """
-        Tap measurement: tap_pin → end_pin.
-        Uses tap['relay_a'] (A-side) and winding.relay_b (B-side).
-        """
-        relay_a = tap.get("relay_a")
-        relay_b = winding.relay_b
-        if relay_a is None or relay_b is None:
-            raise RoutingError(
-                f"tap→end measurement for winding '{winding.id}' needs "
-                f"tap.relay_a and winding.relay_b."
-            )
-        return self._build(relay_a, relay_b, context=f"winding {winding.id} tap tap→end")
-
     def resolve_tap_auto(self, winding, tap: dict) -> List[int]:
         """
-        Choose the best route for a tap:
-          1. start→tap  if winding.relay_a and tap.relay_b are both set
-          2. tap→end    if tap.relay_a and winding.relay_b are both set
-        Raises RoutingError if neither route is available.
+        Route a tap. A tap has a single B-side relay and is always measured
+        start→tap: winding.relay_a paired with tap.relay_b.
+        Raises RoutingError if the route is unavailable.
         """
         if winding.relay_a is not None and tap.get("relay_b") is not None:
             return self.resolve_tap_from_start(winding, tap)
-        if tap.get("relay_a") is not None and winding.relay_b is not None:
-            return self.resolve_tap_to_end(winding, tap)
         raise RoutingError(
             f"No valid route for tap on winding '{winding.id}'. "
-            f"Set tap.relay_b for start→tap or tap.relay_a for tap→end."
+            f"Needs winding.relay_a and the tap's relay (relay_b, RL17-32)."
         )
 
     def relay_map_from_list(self, relay_ids: List[int]) -> Dict[int, bool]:

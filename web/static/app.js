@@ -22,8 +22,7 @@ class RelayAssignmentManager {
         this._reg(w.relay_a, `${w.id} start`);
         this._reg(w.relay_b, `${w.id} end`);
         (w.taps || []).forEach((t, ti) => {
-          this._reg(t.relay_a, `${w.id}:tap${ti}+`);
-          this._reg(t.relay_b, `${w.id}:tap${ti}-`);
+          this._reg(t.relay_b, `${w.id}:tap${ti}`);
         });
       });
     }
@@ -1354,8 +1353,6 @@ function _showInspector(sel) {
     el('insp-tap-label').value   = t.label || '';
     el('insp-tap-pin').value     = t.pin;
     el('insp-tap-voltage').value = t.voltage;
-    el('insp-tap-relay-a').textContent = t.relay_a != null ? `RL${t.relay_a}` : 'None';
-    el('insp-tap-relay-a').className   = 'relay-assign-btn' + (t.relay_a != null ? ' assigned-a' : '');
     el('insp-tap-relay-b').textContent = t.relay_b != null ? `RL${t.relay_b}` : 'None';
     el('insp-tap-relay-b').className   = 'relay-assign-btn' + (t.relay_b != null ? ' assigned-b' : '');
     el('insp-tap-wire-color').value    = t.wire_color || '#1a3d6e';
@@ -1563,16 +1560,6 @@ function bindInspectorEvents() {
     }, e.currentTarget);
   });
 
-  el('insp-tap-relay-a').addEventListener('click', (e) => {
-    const sel = topoEditor?._sel;
-    if (!sel || sel.type !== 'tap') return;
-    const cur = topoEditor.config[sel.side][sel.wIndex].taps[sel.tIndex].relay_a;
-    showRelayPicker('A', cur, (val) => {
-      topoEditor.updateSelected({ relay_a: val });
-      el('insp-tap-relay-a').textContent = val != null ? `RL${val}` : 'None';
-      el('insp-tap-relay-a').className = 'relay-assign-btn' + (val != null ? ' assigned-a' : '');
-    }, e.currentTarget);
-  });
   el('insp-tap-relay-b').addEventListener('click', (e) => {
     const sel = topoEditor?._sel;
     if (!sel || sel.type !== 'tap') return;

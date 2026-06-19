@@ -8,13 +8,14 @@ Relay assignment schema:
     relay_b : int | null  — RL17-32 connected to end_pin    (voltmeter − probe)
 
   Tap dict:
-    relay_a : int | null  — RL1-16  for tap_pin (when tap is + probe)
-    relay_b : int | null  — RL17-32 for tap_pin (when tap is − probe)
+    relay_b : int | null  — RL17-32 single relay for tap_pin (− probe).
+                            Measured start→tap = winding.relay_a + tap.relay_b.
+                            (Legacy relay_a on taps is ignored.)
 
   Backward compatibility:
     Old field relay_id  → used as relay_a if relay_a is absent
     Old field end_relay → used as relay_b if relay_b is absent
-    Old tap field relay_channel → used as relay_b if neither relay_a/relay_b set
+    Old tap field relay_channel → used as relay_b if relay_b is absent
 
 Electrical segment model:
   A validation rule now operates on two SEGMENTS, not single nodes.

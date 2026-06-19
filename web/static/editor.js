@@ -333,7 +333,7 @@ class TopoEditor {
     const { side, wIndex } = this._sel;
     const w = this.config[side][wIndex];
     const ti = w.taps.length;
-    w.taps.push({ pin: 0, voltage: 0, label: `T${ti + 1}`, relay_a: null, relay_b: null });
+    w.taps.push({ pin: 0, voltage: 0, label: `T${ti + 1}`, relay_b: null });
     this._rebuildWinding(side, wIndex);
     this._fire('change', this.config);
   }
@@ -632,8 +632,7 @@ class TopoEditor {
     const frac = (ti + 1) / (total + 1);
     const tapY = -coilHalf + frac * coilHalf * 2;
     const tapX = side === 'primary' ? -(18 + 10) : (18 + 10);
-    const on = (tap.relay_a != null && Boolean(this._relays[String(tap.relay_a)])) ||
-               (tap.relay_b != null && Boolean(this._relays[String(tap.relay_b)]));
+    const on = tap.relay_b != null && Boolean(this._relays[String(tap.relay_b)]);
 
     const tapLineColor = tap.wire_color || (on ? 'rgba(2,132,199,0.6)' : 'rgba(42,90,154,0.35)');
     g.add(new Konva.Line({ name: `tap-line-${ti}`, points: [0, tapY, tapX, tapY], stroke: tapLineColor, strokeWidth: tap.wire_color ? 2 : 1.5, lineCap: 'round' }));
@@ -664,11 +663,8 @@ class TopoEditor {
     const label = tap.label || `${tap.voltage}V`;
     g.add(new Konva.Text({ x: lx, y: tapY - 5, text: label, fontSize: 9, fontFamily: 'IBM Plex Mono, monospace', fill: isSel ? EC.tapSel : (on ? EC.tapActive : EC.labelMuted) }));
 
-    if (tap.relay_a != null || tap.relay_b != null) {
-      const parts = [];
-      if (tap.relay_a != null) parts.push(`RL${tap.relay_a}+`);
-      if (tap.relay_b != null) parts.push(`RL${tap.relay_b}−`);
-      g.add(new Konva.Text({ x: lx, y: tapY + 6, text: parts.join(' '), fontSize: 8, fontFamily: 'IBM Plex Mono, monospace', fill: EC.relayLabel }));
+    if (tap.relay_b != null) {
+      g.add(new Konva.Text({ x: lx, y: tapY + 6, text: `RL${tap.relay_b}`, fontSize: 8, fontFamily: 'IBM Plex Mono, monospace', fill: EC.relayLabel }));
     }
 
     node.on('click tap', (e) => {

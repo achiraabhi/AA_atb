@@ -230,16 +230,26 @@ class TransformerCanvas {
 
     const isActive = w.id === this.activePrimary || w.id === this.activeSecondary;
     const coilColor = this._windingColor(w, isActive);
-    const leadColor = isActive ? C.leadActive : C.leadIdle;
     const lw        = isActive ? 5 : 3;
 
-    // lead lines (coil → core)
-    ctx.strokeStyle = leadColor;
+    // lead lines (coil → core) — drawn in the winding's configured wire colours.
+    // Start lead uses wire_color_start, end lead uses wire_color_end (each
+    // falling back to the generic wire_color, then the idle default). When the
+    // winding is active the lead glows in its own colour so live feedback stays.
+    const startWire = w.wire_color_start || w.wire_color || C.leadIdle;
+    const endWire   = w.wire_color_end   || w.wire_color || C.leadIdle;
     ctx.lineWidth = lw;
-    if (!isActive) { ctx.setLineDash([6, 4]); }
+    if (isActive) ctx.shadowBlur = 10;
+
+    ctx.strokeStyle = startWire;
+    if (isActive) ctx.shadowColor = startWire;
     ctx.beginPath(); ctx.moveTo(cx, y1); ctx.lineTo(coreEx, y1); ctx.stroke();
+
+    ctx.strokeStyle = endWire;
+    if (isActive) ctx.shadowColor = endWire;
     ctx.beginPath(); ctx.moveTo(cx, y2); ctx.lineTo(coreEx, y2); ctx.stroke();
-    ctx.setLineDash([]);
+
+    ctx.shadowBlur = 0;
 
     // coil
     ctx.strokeStyle = coilColor;
@@ -261,23 +271,34 @@ class TransformerCanvas {
 
     // tap nodes
     const tapCount = (w.taps || []).length;
+    const outDir   = side === 'left' ? -1 : 1;   // outward — away from the core
+    const NODE_OFF = 34;                          // tap node distance out from coil
     w.taps && w.taps.forEach((tap, i) => {
-      const tapY = y1 + (y2 - y1) * ((i + 1) / (tapCount + 1));
-      const tapActive = (tap.relay_a != null && this.relayStates[String(tap.relay_a)]) ||
-                        (tap.relay_b != null && this.relayStates[String(tap.relay_b)]);
-      const tapColor = tapActive ? C.tapActive : C.tapIdle;
+      const tapY  = y1 + (y2 - y1) * ((i + 1) / (tapCount + 1));
+      const nodeX = cx + outDir * NODE_OFF;       // node pulled out from the coil
+      const tapActive = tap.relay_b != null && this.relayStates[String(tap.relay_b)];
+      const tapWire  = tap.wire_color || null;
+      const tapColor = tapActive ? C.tapActive : (tapWire || C.tapIdle);
+      const leadCol  = tapActive ? 'rgba(0,229,255,0.6)' : (tapWire || 'rgba(120,140,170,0.5)');
 
-      // tap lead
-      ctx.strokeStyle = tapActive ? 'rgba(0,229,255,0.4)' : 'rgba(30,45,74,0.4)';
+      // straight connector: tap node → coil (solid)
+      ctx.setLineDash([]);
+      ctx.strokeStyle = leadCol;
+      ctx.lineWidth = tapActive ? 2 : 1.5;
+      ctx.beginPath(); ctx.moveTo(nodeX, tapY); ctx.lineTo(cx, tapY); ctx.stroke();
+
+      // tap → core connection: dotted coloured line
       ctx.lineWidth = tapActive ? 2 : 1;
-      ctx.setLineDash([4, 4]);
+      ctx.lineCap = 'round';
+      ctx.setLineDash([1, 5]);
       ctx.beginPath(); ctx.moveTo(cx, tapY); ctx.lineTo(coreEx, tapY); ctx.stroke();
       ctx.setLineDash([]);
+      ctx.lineCap = 'butt';
 
-      // tap node
+      // tap node (sits out from the coil)
       ctx.fillStyle = tapColor;
       ctx.beginPath();
-      ctx.arc(cx, tapY, 6, 0, Math.PI * 2);
+      ctx.arc(nodeX, tapY, 6, 0, Math.PI * 2);
       ctx.fill();
       if (tapActive) {
         ctx.shadowColor = C.tapActive;
@@ -286,12 +307,12 @@ class TransformerCanvas {
         ctx.shadowBlur = 0;
       }
 
-      // tap label
+      // tap label — just outside the node
       const tapLabel = tap.label || `${tap.voltage}V`;
       ctx.fillStyle = tapActive ? C.tapActive : C.labelMuted;
       ctx.font = '10px "JetBrains Mono", monospace';
       ctx.textAlign = side === 'left' ? 'right' : 'left';
-      ctx.fillText(tapLabel, side === 'left' ? cx - 12 : cx + 12, tapY + 3);
+      ctx.fillText(tapLabel, nodeX + outDir * 12, tapY + 3);
     });
 
     // winding label — placed between the coil and the core, inside the two leads
@@ -364,6 +385,11 @@ class TransformerCanvas {
     const relay = which === 'start' ? w.relay_a : w.relay_b;
     const on    = relay != null && this.relayStates[String(relay)];
     if (on) return this.appState === 'FAIL' ? C.pinFail : C.pinActive;
+    // Tint the pin with the lead's configured wire colour when present.
+    const wire = which === 'start'
+      ? (w.wire_color_start || w.wire_color)
+      : (w.wire_color_end   || w.wire_color);
+    if (wire) return wire;
     return isActive ? C.pinActive : C.pinIdle;
   }
 

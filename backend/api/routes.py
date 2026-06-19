@@ -106,9 +106,9 @@ def _auto_assign_relays(raw: Dict[str, Any], ew_id: str) -> None:
     Auto-assign relays to every winding/tap node, following the bench rules:
 
       • Energising winding:  start → Group A,  end → NO relay (common reference).
-      • Energising winding taps:  one relay each, from Group A.
       • Other windings:  start → Group A,  end → Group B.
-      • Other windings' taps:  one relay each, from Group B.
+      • Taps (any winding):  a single relay each, from Group B
+        (measured start→tap = winding.relay_a + tap.relay_b).
 
     Mutates ``raw`` in place. Raises HTTPException(400) if a group is exhausted.
     """
@@ -133,15 +133,14 @@ def _auto_assign_relays(raw: Dict[str, Any], ew_id: str) -> None:
         if w.get("id") == ew_id:
             w["relay_a"] = take("a")          # start → Group A
             w["relay_b"] = None               # end → no relay (common)
-            for tap in (w.get("taps") or []):
-                tap["relay_a"] = take("a")    # energising tap → Group A
-                tap["relay_b"] = None
         else:
             w["relay_a"] = take("a")          # start → Group A
             w["relay_b"] = take("b")          # end → Group B
-            for tap in (w.get("taps") or []):
-                tap["relay_a"] = None
-                tap["relay_b"] = take("b")    # other tap → Group B
+        # Taps always take a single Group B relay; routed start→tap with the
+        # winding's start relay (relay_a). Drop any legacy A-side tap relay.
+        for tap in (w.get("taps") or []):
+            tap.pop("relay_a", None)
+            tap["relay_b"] = take("b")
 
 
 @router.post("/transformers/{transformer_id}/generate-rules")

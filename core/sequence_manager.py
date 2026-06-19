@@ -163,7 +163,7 @@ class SequenceManager:
 
         Start node  ("P1")      → winding.relay_a
         End node    ("P1:end")  → winding.relay_b
-        Tap node    ("P1:tap0") → tap dict relay_a or relay_b
+        Tap node    ("P1:tap0") → tap dict relay_b (a tap has one B-side relay)
         """
         wind_id, tap_idx, is_end = cls._parse_node_id(node_id)
         w = winding_map.get(wind_id)
@@ -171,9 +171,7 @@ class SequenceManager:
             return None
         if tap_idx is not None:
             if tap_idx < len(w.taps):
-                tap = w.taps[tap_idx]
-                return (tap.get("relay_a") if tap.get("relay_a") is not None
-                        else tap.get("relay_b"))
+                return w.taps[tap_idx].get("relay_b")
             return None
         if is_end:
             return w.relay_b if w.relay_b is not None else w.end_relay

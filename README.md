@@ -184,14 +184,15 @@ The relay board routes only the **voltmeter probes**. No relay controls mains po
   "pin": 5,
   "voltage": 12,
   "label": "CT (0V)",
-  "relay_a": 3,
   "relay_b": 19,
   "meas_channel": 1
 }
 ```
 
-`relay_b` on tap = start→tap measurement (winding.relay_a + tap.relay_b)  
-`relay_a` on tap = tap→end measurement (tap.relay_a + winding.relay_b)
+A tap takes a **single relay** on the B-side (− bus, RL17–32), stored in
+`relay_b`. It is always measured **start→tap**: `winding.relay_a` (start pin,
++ bus) paired with `tap.relay_b`. (Older configs may carry a `relay_a` on taps —
+it is now ignored; the validator warns so you can remove it.)
 
 ### Auto-matrix
 

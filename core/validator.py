@@ -94,6 +94,17 @@ class TransformerValidator:
                                                    f"{side}.{wid}.tap[{ti}].voltage",
                                                    f"{wid} tap {ti}: voltage not specified"))
 
+                # A tap takes a single B-side relay (RL17-32); measured start→tap.
+                if tap.get("relay_b") is None:
+                    issues.append(ValidationIssue(Severity.WARNING,
+                                                   f"{side}.{wid}.tap[{ti}].relay_b",
+                                                   f"{wid} tap {ti}: no relay assigned (needs one RL17-32)"))
+                if tap.get("relay_a") is not None:
+                    issues.append(ValidationIssue(Severity.WARNING,
+                                                   f"{side}.{wid}.tap[{ti}].relay_a",
+                                                   f"{wid} tap {ti}: relay_a is no longer used on taps — "
+                                                   f"a tap takes a single relay (relay_b)"))
+
             # Duplicate tap pins
             if len(tap_pins) != len(set(tap_pins)):
                 issues.append(ValidationIssue(Severity.WARNING, f"{side}.{wid}.taps",
