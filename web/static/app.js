@@ -1830,7 +1830,7 @@ async function scanPorts() {
   try {
     const { ports } = await apiGet('/serial/ports');
     fillPortSelect('ports-v1', ports, 'v1');
-    fillPortSelect('ports-v2', ports, 'v2');
+    // V2 is the UT61B+ over USB-HID — no serial port to assign.
     status.textContent = ports.length
       ? `${ports.length} port${ports.length === 1 ? '' : 's'} found`
       : 'No serial ports detected';
@@ -1893,7 +1893,7 @@ function bindPortsModal() {
   el('ports-backdrop').addEventListener('click', closePortsModal);
   el('ports-scan').addEventListener('click', scanPorts);
   el('ports-assign-v1').addEventListener('click', () => assignPort('v1'));
-  el('ports-assign-v2').addEventListener('click', () => assignPort('v2'));
+  // V2 (UT61B+, USB-HID) has no serial port to assign.
 }
 
 // ── utilities ─────────────────────────────────────────────────────────────────

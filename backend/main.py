@@ -86,17 +86,20 @@ async def lifespan(app: FastAPI):
     log.info(f"Serial scan: {detected['types']}")
     app.state.port_types = detected["types"]
 
-    # Dual voltage meter service — connect detected V1/V2.
-    # V1 = energizing voltage (display only), V2 = measurement voltage (TestEngine).
-    volt_service = DualVoltageService()
+    # Dual voltage meter service.
+    # V1 = energizing voltage (display only) — Arduino/MCU stream over a tty.
+    # V2 = measurement voltage (TestEngine) — UNI-T UT61B+ over USB-HID ONLY.
+    #      V2 never uses a serial/tty port; the meter is auto-detected over HID,
+    #      so detected["v2"] is intentionally ignored.
+    volt_service = DualVoltageService(v1_driver="serial", v2_driver="ut61")
     volt_service.connect(
         v1_port=detected["v1"],
         v1_baud=int(os.getenv("V1_BAUD", "115200")),
-        v2_port=detected["v2"],
+        v2_port=None,                       # V2 is HID-only — no tty
         v2_baud=int(os.getenv("V2_BAUD", "115200")),
     )
     app.state.volt_service = volt_service
-    log.info(f"Voltmeters → V1: {detected['v1'] or 'none'} | V2: {detected['v2'] or 'none'}")
+    log.info(f"Voltmeters → V1: {detected['v1'] or 'none'} | V2: UT61B+ (HID)")
 
     # Relay board — only connect when one was actually detected, so we never
     # squat a voltmeter's port. Server still starts if absent (UI loads,

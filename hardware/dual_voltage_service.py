@@ -64,6 +64,12 @@ class DualVoltageService:
         which = which.lower()
         if which not in ("v1", "v2"):
             raise ValueError(f"unknown meter '{which}' — expected 'v1' or 'v2'")
+        driver = self.v1_driver if which == "v1" else self.v2_driver
+        if driver == "ut61":
+            # HID-only channel — it has no serial/tty port to assign.
+            log.warning(f"{which.upper()} uses the UT61B+ over USB-HID — "
+                        f"serial port assignment ignored")
+            return False
         meter = self._v1 if which == "v1" else self._v2
         meter.disconnect()
         ok = meter.connect(port, baud)
