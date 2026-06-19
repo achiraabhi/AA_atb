@@ -1,0 +1,14 @@
+# UNI-T "+" series digital multimeters — USB-HID bridges.
+# Grants non-root access so the ATB backend can open the meter without sudo.
+# Install:  sudo cp udev/99-unit-dmm.rules /etc/udev/rules.d/
+#           sudo udevadm control --reload-rules && sudo udevadm trigger
+#           (then re-plug the meter)
+# Without this you get "OSError: open failed" when opening the device.
+
+# WCH HID-UART bridge — e.g. UT61B+ ("WCH UART TO KB-MS")
+SUBSYSTEM=="usb",    ATTR{idVendor}=="1a86",  ATTR{idProduct}=="e429", MODE="0666"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="e429", MODE="0666"
+
+# Silicon Labs CP2110 bridge — e.g. UT61E+ and most other "+" models
+SUBSYSTEM=="usb",    ATTR{idVendor}=="10c4",  ATTR{idProduct}=="ea80", MODE="0666"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea80", MODE="0666"

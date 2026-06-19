@@ -216,6 +216,36 @@ Configure the serial ports in `.env` (copied from `.env.example`):
 
 The backend connects to the relay board at startup and **raises an error if the port is unavailable** — the physical board is required to run.
 
+### UNI-T UT61B+ multimeter (USB-HID)
+
+A UNI-T **UT61B+** can be used as a voltage meter instead of (or alongside) the
+streaming serial meters. It is **not a serial port** — its cable is a WCH
+HID-UART bridge (`1a86:e429`); other "+" models use a Silicon Labs CP2110
+(`10c4:ea80`). Both are spoken to over USB-HID via the bundled
+[`ut61eplus/`](ut61eplus/) driver. The meter does not stream — it is **polled**;
+[hardware/voltage_meter_ut61.py](hardware/voltage_meter_ut61.py) runs a
+background poll thread and exposes the same API as the serial meter, so it drops
+straight into `DualVoltageService` / the test engine.
+
+Select it per channel in `.env`:
+
+```ini
+V1_DRIVER=serial     # serial | ut61 | auto
+V2_DRIVER=auto       # auto = UT61B+ if its HID bridge is plugged in, else serial
+```
+
+Setup (handled by `sudo bash setup_pi.sh`, or do it manually):
+
+1. Python package `hidapi` (in `requirements.txt`) + system lib
+   `libhidapi-hidraw0`.
+2. udev rule for non-root access — copy [udev/99-unit-dmm.rules](udev/99-unit-dmm.rules)
+   to `/etc/udev/rules.d/`, then
+   `sudo udevadm control --reload-rules && sudo udevadm trigger`, and re-plug the
+   meter. Without it you get `OSError: open failed`.
+
+Reference scripts: [scan_usb.py](scan_usb.py) confirms the bridge is present;
+[read_continuous.py](read_continuous.py) is a standalone polling loop.
+
 ---
 
 ## Test Logs

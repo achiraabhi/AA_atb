@@ -20,9 +20,17 @@ echo ""
 if [ "$(id -u)" -eq 0 ]; then
     echo "[1/5] Installing system packages..."
     apt-get update -qq
-    apt-get install -y python3-pip python3-venv
+    # libhidapi-hidraw0 — USB-HID backend for the UNI-T UT61B+ multimeter (hidapi)
+    apt-get install -y python3-pip python3-venv libhidapi-hidraw0
     echo "[2/5] Adding $PI_USER to dialout group (serial port access)..."
     usermod -aG dialout "$PI_USER"
+
+    # udev rule so the UT61B+ (USB-HID) opens without sudo. Without this the
+    # backend gets "OSError: open failed" when V*_DRIVER=ut61/auto.
+    echo "      Installing UNI-T DMM udev rule..."
+    cp "$INSTALL_DIR/udev/99-unit-dmm.rules" /etc/udev/rules.d/99-unit-dmm.rules
+    udevadm control --reload-rules && udevadm trigger
+    echo "      udev rule installed — re-plug the meter for it to take effect."
 else
     echo "[1/2] Skipping system packages (not root — run with sudo to install)"
     echo "      python3-venv must already be installed"

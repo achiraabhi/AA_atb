@@ -649,7 +649,8 @@ function buildRelayRow(container, from, to) {
 }
 
 function renderVoltageBar(data) {
-  const { v1, v2, v1_fresh, v2_fresh, v1_connected, v2_connected } = data;
+  const { v1, v2, v1_fresh, v2_fresh, v1_connected, v2_connected,
+          v1_overload, v2_overload } = data;
 
   const v1El   = document.getElementById('vbar-v1');
   const v2El   = document.getElementById('vbar-v2');
@@ -661,6 +662,10 @@ function renderVoltageBar(data) {
     v1El.textContent = v1.toFixed(3);
     v1El.className   = 'vbar-value ' + (v1_fresh ? 'fresh' : 'stale');
     v1Dot.className  = 'vbar-dot '   + (v1_fresh ? 'fresh' : 'stale');
+  } else if (v1_overload) {
+    v1El.textContent = 'OL';
+    v1El.className   = 'vbar-value stale';
+    v1Dot.className  = 'vbar-dot stale';
   } else {
     v1El.textContent = v1_connected ? '…' : '—';
     v1El.className   = 'vbar-value';
@@ -672,6 +677,10 @@ function renderVoltageBar(data) {
     v2El.textContent = v2.toFixed(3);
     v2El.className   = 'vbar-value ' + (v2_fresh ? 'fresh' : 'stale');
     v2Dot.className  = 'vbar-dot '   + (v2_fresh ? 'fresh' : 'stale');
+  } else if (v2_overload) {
+    v2El.textContent = 'OL';
+    v2El.className   = 'vbar-value stale';
+    v2Dot.className  = 'vbar-dot stale';
   } else {
     v2El.textContent = v2_connected ? '…' : '—';
     v2El.className   = 'vbar-value';
