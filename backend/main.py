@@ -45,8 +45,9 @@ from backend.websocket.events import (
     CMD_START_TEST, CMD_STOP_TEST, CMD_PAUSE_TEST, CMD_RESUME_TEST,
     CMD_NEXT_STEP, CMD_EMERGENCY_STOP, CMD_SELECT_TRANSFORMER, CMD_SET_OPERATOR,
     CMD_NEXT_UNIT, CMD_SKIP_UNIT, CMD_RETRY_UNIT, CMD_COMPLETE_BATCH,
-    CMD_SET_EXCITATION, EVT_LIVE_VOLTAGES,
+    CMD_SET_EXCITATION, EVT_LIVE_VOLTAGES, EVT_RELAY_COMM,
 )
+from hardware import relay_comm_log
 from hardware.dual_voltage_service import DualVoltageService
 
 logging.basicConfig(
@@ -87,19 +88,29 @@ async def lifespan(app: FastAPI):
     app.state.port_types = detected["types"]
 
     # Dual voltage meter service.
-    # V1 = energizing voltage (display only) — Arduino/MCU stream over a tty.
-    # V2 = measurement voltage (TestEngine) — UNI-T UT61B+ over USB-HID ONLY.
-    #      V2 never uses a serial/tty port; the meter is auto-detected over HID,
-    #      so detected["v2"] is intentionally ignored.
-    volt_service = DualVoltageService(v1_driver="serial", v2_driver="ut61")
+    # V1 = energizing voltage, V2 = measurement voltage (feeds TestEngine).
+    # Both are now UNI-T UT61B+ meters over USB-HID by default. Since the two
+    # meters share a VID/PID, each channel claims a DISTINCT physical meter; pin
+    # which one is which by serial via V1_UT61_SERIAL / V2_UT61_SERIAL (else they
+    # are auto-assigned by USB-port order). Set V*_DRIVER=serial to use a
+    # streaming serial meter on a channel instead.
+    v1_driver = os.getenv("V1_DRIVER", "ut61").strip().lower()
+    v2_driver = os.getenv("V2_DRIVER", "ut61").strip().lower()
+    volt_service = DualVoltageService(
+        v1_driver=v1_driver, v2_driver=v2_driver,
+        v1_serial=(os.getenv("V1_UT61_SERIAL") or None),
+        v2_serial=(os.getenv("V2_UT61_SERIAL") or None),
+    )
     volt_service.connect(
-        v1_port=detected["v1"],
+        v1_port=(detected["v1"] if v1_driver == "serial" else None),
         v1_baud=int(os.getenv("V1_BAUD", "115200")),
-        v2_port=None,                       # V2 is HID-only — no tty
+        v2_port=(detected["v2"] if v2_driver == "serial" else None),
         v2_baud=int(os.getenv("V2_BAUD", "115200")),
     )
     app.state.volt_service = volt_service
-    log.info(f"Voltmeters → V1: {detected['v1'] or 'none'} | V2: UT61B+ (HID)")
+    _src = lambda drv, m, port: (f"UT61B+ sn={m.serial}" if drv == "ut61" else (port or "none"))
+    log.info(f"Voltmeters → V1: {_src(v1_driver, volt_service._v1, detected['v1'])} "
+             f"| V2: {_src(v2_driver, volt_service._v2, detected['v2'])}")
 
     # Relay board — only connect when one was actually detected, so we never
     # squat a voltmeter's port. Server still starts if absent (UI loads,
@@ -120,6 +131,9 @@ async def lifespan(app: FastAPI):
     seq_manager = SequenceManager()
     test_engine = TestEngine(state_manager, seq_manager, config_loader, hardware, logger)
 
+    from core.relay_sequence import RelaySequencer
+    relay_sequencer = RelaySequencer(state_manager, hardware)
+
     # WebSocket layer
     ws_manager      = WebSocketManager()
     broadcaster     = WsBroadcaster(state_manager, ws_manager, loop)
@@ -129,16 +143,32 @@ async def lifespan(app: FastAPI):
     app.state.state_manager   = state_manager
     app.state.hardware        = hardware
     app.state.test_engine     = test_engine
+    app.state.relay_sequencer = relay_sequencer
     app.state.ws_manager      = ws_manager
     app.state.broadcaster     = broadcaster
     app.state.event_loop      = loop
 
-    # Background task: broadcast V1/V2 to all WS clients every second
+    # Background task: push V1/V2 immediately on change (1 s heartbeat when
+    # steady) and stream relay MCU ⇄ PC serial traffic to the UI console.
     async def _voltage_broadcast_loop():
+        TICK = 0.1
+        HEARTBEAT = 1.0
+        last_vals = None
+        last_send = 0.0
+        comm_seq = 0
         while True:
             readings = volt_service.get_readings()
-            await ws_manager.broadcast({"type": EVT_LIVE_VOLTAGES, "data": readings})
-            await asyncio.sleep(1.0)
+            vals = (readings["v1"], readings["v2"],
+                    readings.get("v1_overload"), readings.get("v2_overload"))
+            now = loop.time()
+            if vals != last_vals or (now - last_send) >= HEARTBEAT:
+                await ws_manager.broadcast({"type": EVT_LIVE_VOLTAGES, "data": readings})
+                last_vals = vals
+                last_send = now
+            entries, comm_seq = relay_comm_log.get_since(comm_seq)
+            if entries:
+                await ws_manager.broadcast({"type": EVT_RELAY_COMM, "data": {"entries": entries}})
+            await asyncio.sleep(TICK)
 
     broadcast_task = asyncio.create_task(_voltage_broadcast_loop())
 
@@ -147,6 +177,7 @@ async def lifespan(app: FastAPI):
 
     # Cleanup
     broadcast_task.cancel()
+    relay_sequencer.stop()
     test_engine.stop()
     hardware.shutdown()
     log.info("ATB backend shut down")
@@ -209,6 +240,10 @@ async def websocket_endpoint(ws: WebSocket):
         # Also send current V1/V2 immediately so the bar isn't blank
         volt_readings = app.state.volt_service.get_readings()
         await ws.send_json({"type": EVT_LIVE_VOLTAGES, "data": volt_readings})
+        # Seed the relay-comm console with recent traffic so it isn't blank.
+        recent, _ = relay_comm_log.get_since(0)
+        if recent:
+            await ws.send_json({"type": EVT_RELAY_COMM, "data": {"entries": recent[-60:]}})
     except Exception as e:
         log.warning(f"[WS] Snapshot send failed: {e}")
 

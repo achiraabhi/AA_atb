@@ -32,6 +32,13 @@ _DMM_BRIDGES = {
     (0x1a86, 0xE429): "WCH HID-UART (UT61B+)",
     (0x10c4, 0xEA80): "Silicon Labs CP2110",
 }
+_WCH = (0x1a86, 0xE429)
+
+# When several identical meters are plugged in they share a VID/PID, so each
+# VoltageMeterUT61 instance claims a distinct HID device path. This module-level
+# registry stops two channels (V1 and V2) from grabbing the same physical meter.
+_CLAIM_LOCK = threading.Lock()
+_CLAIMED_PATHS: set = set()
 
 try:
     import hid  # provided by the `hidapi` package
@@ -73,6 +80,9 @@ class VoltageMeterUT61:
     def __init__(self) -> None:
         self._dmm                          = None
         self._name: Optional[str]          = None
+        self._path                         = None   # claimed HID device path
+        self._serial: Optional[str]        = None   # meter serial number
+        self._is_wch        = False
         self._connected     = False
         self._stop_flag     = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -89,15 +99,40 @@ class VoltageMeterUT61:
     @staticmethod
     def is_available() -> bool:
         """True if a known UNI-T DMM HID bridge is currently plugged in."""
+        return len(VoltageMeterUT61.list_meters()) > 0
+
+    @staticmethod
+    def list_meters() -> List[dict]:
+        """
+        All UNI-T DMM HID devices currently plugged in, sorted by path (stable
+        per USB port). Each entry: {serial, path, vendor_id, product_id,
+        product, claimed}.
+        """
+        out: List[dict] = []
         if not (_HID_OK and _DRIVER_OK):
-            return False
+            return out
         try:
             for d in hid.enumerate():
                 if (d["vendor_id"], d["product_id"]) in _DMM_BRIDGES:
-                    return True
+                    out.append(d)
         except Exception as exc:
             log.debug(f"UT61 HID enumerate failed: {exc}")
-        return False
+            return out
+        out.sort(key=lambda d: d.get("path") or b"")
+        with _CLAIM_LOCK:
+            claimed = set(_CLAIMED_PATHS)
+        return [{
+            "serial":     d.get("serial_number"),
+            "path":       (d.get("path") or b"").decode("ascii", "replace"),
+            "vendor_id":  d["vendor_id"],
+            "product_id": d["product_id"],
+            "product":    d.get("product_string"),
+            "claimed":    d.get("path") in claimed,
+        } for d in out]
+
+    @property
+    def serial(self) -> Optional[str]:
+        return self._serial
 
     # ── connection ──────────────────────────────────────────────────────────
 
@@ -113,12 +148,16 @@ class VoltageMeterUT61:
     def name(self) -> Optional[str]:
         return self._name
 
-    def connect(self, port: Optional[str] = None, baud: Optional[int] = None) -> bool:
+    def connect(self, port: Optional[str] = None, baud: Optional[int] = None,
+                serial: Optional[str] = None) -> bool:
         """
-        Open the meter and start polling.
+        Claim and open a UNI-T meter, then start polling.
 
-        `port`/`baud` are accepted for signature-compatibility with
-        VoltageMeterSerial but ignored — the HID device is auto-detected.
+        serial : open the meter with this serial number when present; otherwise
+                 the first meter not already claimed by another channel. This is
+                 how V1 and V2 each get a distinct physical meter.
+        `port`/`baud` are accepted for VoltageMeterSerial signature-compat and
+        ignored (HID device, no serial port).
         """
         if not _DRIVER_OK:
             log.warning("ut61eplus driver not importable — UT61 meter unavailable")
@@ -126,30 +165,58 @@ class VoltageMeterUT61:
         if not _HID_OK:
             log.warning("hidapi (`hidapi` package) not installed — UT61 meter unavailable")
             return False
+
+        # Pick a device: requested serial first, else first unclaimed one.
         try:
-            self._dmm = UT61EPLUS()  # opens the device (auto-detects WCH or CP2110)
+            devs = [d for d in hid.enumerate()
+                    if (d["vendor_id"], d["product_id"]) in _DMM_BRIDGES]
+        except Exception as exc:
+            log.error(f"UT61 enumerate failed: {exc}")
+            return False
+        devs.sort(key=lambda d: d.get("path") or b"")
+
+        chosen = None
+        with _CLAIM_LOCK:
+            if serial:
+                chosen = next((d for d in devs
+                               if d.get("serial_number") == serial
+                               and d.get("path") not in _CLAIMED_PATHS), None)
+            if chosen is None:
+                chosen = next((d for d in devs
+                               if d.get("path") not in _CLAIMED_PATHS), None)
+            if chosen is None:
+                log.warning("No free UNI-T DMM to open"
+                            + (f" (serial {serial} not available)" if serial else ""))
+                return False
+            self._path = chosen.get("path")
+            _CLAIMED_PATHS.add(self._path)
+
+        self._serial = chosen.get("serial_number")
+        self._is_wch = (chosen["vendor_id"], chosen["product_id"]) == _WCH
+        try:
+            self._dmm = UT61EPLUS(path=self._path, is_wch=self._is_wch)
             try:
                 self._name = self._dmm.getName()
             except Exception:
                 self._name = "UT61+"
-            bridge = "WCH" if getattr(self._dmm, "_wch", False) else "CP2110"
+            bridge = "WCH" if self._is_wch else "CP2110"
             self._connected = True
             self._stop_flag.clear()
             self._thread = threading.Thread(
-                target=self._poll_loop,
-                daemon=True,
-                name=f"UT61-{self._name}",
+                target=self._poll_loop, daemon=True, name=f"UT61-{self._serial}",
             )
             self._thread.start()
-            log.info(f"UT61 meter connected: {self._name} via {bridge} bridge")
+            log.info(f"UT61 meter connected: {self._name} sn={self._serial} via {bridge}")
             return True
         except OSError as exc:
+            self._release_claim()
             log.error(
                 f"UT61 meter open failed ({exc}) — check the udev rule "
                 f"(udev/99-unit-dmm.rules) and that the meter is powered on"
             )
             return False
         except Exception as exc:
+            self._release_claim()
             log.error(f"UT61 meter connect failed: {exc}")
             return False
 
@@ -159,6 +226,13 @@ class VoltageMeterUT61:
             self._thread.join(timeout=2.0)
         self._close_device()
         self._connected = False
+        self._release_claim()
+
+    def _release_claim(self) -> None:
+        if self._path is not None:
+            with _CLAIM_LOCK:
+                _CLAIMED_PATHS.discard(self._path)
+            self._path = None
 
     # ── reading API (matches VoltageMeterSerial) ──────────────────────────────
 
@@ -267,9 +341,9 @@ class VoltageMeterUT61:
                 if self._stop_flag.is_set():
                     return
                 try:
-                    self._dmm = UT61EPLUS()
+                    self._dmm = UT61EPLUS(path=self._path, is_wch=self._is_wch)
                     self._connected = True
-                    log.info("UT61 meter reconnected")
+                    log.info(f"UT61 meter reconnected sn={self._serial}")
                 except Exception as reopen_exc:
                     log.error(f"UT61 meter reopen failed: {reopen_exc}")
 

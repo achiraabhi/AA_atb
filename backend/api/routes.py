@@ -48,6 +48,16 @@ class AssignVoltmeterRequest(BaseModel):
     baud: int = 115200
 
 
+class AssignRelayRequest(BaseModel):
+    port: str
+    baud: Optional[int] = None
+
+
+class AssignDmmRequest(BaseModel):
+    target: str           # "v1" or "v2"
+    serial: str           # UNI-T meter serial number
+
+
 class SaveTransformerRequest(BaseModel):
     data: Dict[str, Any]
     filename: Optional[str] = None
@@ -105,10 +115,12 @@ def _auto_assign_relays(raw: Dict[str, Any], ew_id: str) -> None:
     """
     Auto-assign relays to every winding/tap node, following the bench rules:
 
-      • Energising winding:  start → Group A,  end → NO relay (common reference).
-      • Other windings:  start → Group A,  end → Group B.
-      • Taps (any winding):  a single relay each, from Group B
-        (measured start→tap = winding.relay_a + tap.relay_b).
+      • Energising winding:  NO measurement relays — its terminals are
+        permanent wiring and it is never routed through Group A. (Excitation
+        and its tap selection are handled externally.)
+      • Measurement windings:  start → A1 (RL1-16), end → A2 (RL17-32).
+      • Measurement-winding taps:  one A2 relay each (RL17-32),
+        measured start→tap = winding.relay_a + tap.relay_b.
 
     Mutates ``raw`` in place. Raises HTTPException(400) if a group is exhausted.
     """
@@ -131,16 +143,24 @@ def _auto_assign_relays(raw: Dict[str, Any], ew_id: str) -> None:
 
     for w in ordered:
         if w.get("id") == ew_id:
-            w["relay_a"] = take("a")          # start → Group A
-            w["relay_b"] = None               # end → no relay (common)
+            # Energizing winding: its start/end are permanent dedicated wiring
+            # (never switched) and it is NEVER routed through Group A. Its
+            # excitation voltage is read by the V1 meter, and excitation-tap
+            # selection (Group B, R37-40) is handled externally — so it takes
+            # no measurement relays at all.
+            w["relay_a"] = None
+            w["relay_b"] = None
+            for tap in (w.get("taps") or []):
+                tap.pop("relay_a", None)
+                tap["relay_b"] = None
         else:
-            w["relay_a"] = take("a")          # start → Group A
-            w["relay_b"] = take("b")          # end → Group B
-        # Taps always take a single Group B relay; routed start→tap with the
-        # winding's start relay (relay_a). Drop any legacy A-side tap relay.
-        for tap in (w.get("taps") or []):
-            tap.pop("relay_a", None)
-            tap["relay_b"] = take("b")
+            # Measurement winding: start → A1 (RL1-16), end → A2 (RL17-32),
+            # each tap → A2 (RL17-32). Measured start→(end|tap).
+            w["relay_a"] = take("a")
+            w["relay_b"] = take("b")
+            for tap in (w.get("taps") or []):
+                tap.pop("relay_a", None)
+                tap["relay_b"] = take("b")
 
 
 @router.post("/transformers/{transformer_id}/generate-rules")
@@ -285,6 +305,54 @@ def get_relays(request: Request):
     return {"relays": {str(k): v for k, v in sm.relay_states.items()}}
 
 
+@router.post("/relays/sequence")
+def start_relay_sequence(request: Request):
+    """
+    Diagnostic click-test: energize the selected transformer's gates and each
+    winding's assigned relays, one at a time, holding each closed for 1 second.
+
+    Gates (RL33/34) are firmware-controlled and cannot be pulsed on their own —
+    they close automatically with each winding relay's group and show CLOSED for
+    that relay's 1-second window.
+    """
+    from core.relay_sequence import build_relay_steps
+
+    sm  = _get(request, "state_manager")
+    cfg = _get(request, "config_loader")
+    seq = _get(request, "relay_sequencer")
+
+    if sm.app_state in (AppState.TESTING, AppState.PAUSED, AppState.STOPPING):
+        raise HTTPException(409, "Cannot run relay sequence while a test is active")
+    if seq.running:
+        raise HTTPException(409, "Relay sequence already running")
+
+    tid = sm.selected_transformer_id
+    if not tid:
+        raise HTTPException(400, "No transformer selected")
+    config = cfg.get_transformer(tid)
+    if config is None:
+        raise HTTPException(404, f"Transformer '{tid}' not found")
+
+    steps = build_relay_steps(config)
+    if not steps:
+        raise HTTPException(400, "No relays are assigned to this transformer")
+
+    seq.start(steps)
+    return {
+        "running":  True,
+        "steps":    len(steps),
+        "dwell_ms": 1000,
+        "relays":   [rid for _, rid in steps],
+    }
+
+
+@router.post("/relays/sequence/stop")
+def stop_relay_sequence(request: Request):
+    seq = _get(request, "relay_sequencer")
+    seq.stop()
+    return {"running": False}
+
+
 @router.post("/transformer/select")
 def select_transformer(body: SelectTransformerRequest, request: Request):
     sm  = _get(request, "state_manager")
@@ -409,6 +477,54 @@ def hardware_connect(body: SerialConnectRequest, request: Request):
     return {"connected": connected, "mode": "real"}
 
 
+@router.post("/hardware/relay/connect")
+def relay_connect(request: Request):
+    """
+    (Re)connect the relay board on demand — e.g. after it was unplugged or hit a
+    USB I/O error mid-session. Scans free serial ports for the relay MCU
+    (skipping ports the voltage meters hold) and opens it.
+    """
+    from hardware import port_scanner
+
+    hw    = _get(request, "hardware")
+    relay = hw.relays
+    if getattr(relay, "_serial", None) is not None and relay._serial.connected:
+        return {"connected": True,
+                "port": getattr(request.app.state, "relay_port", None),
+                "message": "already connected"}
+
+    # Don't probe ports a meter already holds open (it would steal their bytes).
+    volt = getattr(request.app.state, "volt_service", None)
+    held = set()
+    for m in (getattr(volt, "_v1", None), getattr(volt, "_v2", None)):
+        p = getattr(m, "_port_name", None)
+        if p:
+            held.add(p)
+
+    baud = int(os.getenv("SERIAL_BAUD", "115200"))
+    cfg_port = os.getenv("SERIAL_PORT")
+
+    # Try the configured port first, then any other free port, classifying each.
+    devices = [d["device"] for d in port_scanner.list_devices()]
+    ordered = ([cfg_port] if cfg_port in devices else []) + [d for d in devices if d != cfg_port]
+
+    relay_port = None
+    for dev in ordered:
+        if dev in held:
+            continue
+        if port_scanner.classify_port(dev, baud) == "relay":
+            relay_port = dev
+            break
+
+    if not relay_port:
+        raise HTTPException(404, "No relay MCU found on a free serial port")
+    if not relay.connect(relay_port, baud):
+        raise HTTPException(502, f"Failed to open relay MCU on {relay_port}")
+
+    request.app.state.relay_port = relay_port
+    return {"connected": True, "port": relay_port}
+
+
 @router.get("/serial/ports")
 def list_serial_ports(request: Request):
     """
@@ -449,6 +565,11 @@ def assign_voltmeter(body: AssignVoltmeterRequest, request: Request):
     """Manually assign a serial port to the V1 or V2 voltage meter at runtime."""
     if body.target.lower() not in ("v1", "v2"):
         raise HTTPException(status_code=400, detail="target must be 'v1' or 'v2'")
+    # Keep the relay board on its own port — never let a meter take it.
+    relay_port = getattr(request.app.state, "relay_port", None)
+    if relay_port and body.port == relay_port:
+        raise HTTPException(status_code=409,
+                            detail=f"{body.port} is assigned to the relay board")
     volt = _get(request, "volt_service")
     ok = volt.set_meter_port(body.target, body.port, body.baud)
     if not ok:
@@ -457,6 +578,63 @@ def assign_voltmeter(body: AssignVoltmeterRequest, request: Request):
             detail=f"Could not open {body.port} for {body.target.upper()}",
         )
     return {"connected": True, "target": body.target.lower(), "port": body.port}
+
+
+@router.get("/serial/dmms")
+def list_dmms(request: Request):
+    """List the UNI-T UT61B+ meters on USB-HID and which channel each is on."""
+    from hardware.voltage_meter_ut61 import VoltageMeterUT61
+    volt = _get(request, "volt_service")
+    v1s = getattr(volt._v1, "serial", None) if volt.v1_driver == "ut61" else None
+    v2s = getattr(volt._v2, "serial", None) if volt.v2_driver == "ut61" else None
+    meters = VoltageMeterUT61.list_meters()
+    for m in meters:
+        m["assigned"] = ("v1" if m["serial"] and m["serial"] == v1s
+                         else "v2" if m["serial"] and m["serial"] == v2s
+                         else None)
+    return {"meters": meters, "v1": v1s, "v2": v2s,
+            "v1_driver": volt.v1_driver, "v2_driver": volt.v2_driver}
+
+
+@router.post("/serial/dmm")
+def assign_dmm(body: AssignDmmRequest, request: Request):
+    """Assign a specific UNI-T meter (by serial) to V1 or V2; swaps if needed."""
+    if body.target.lower() not in ("v1", "v2"):
+        raise HTTPException(status_code=400, detail="target must be 'v1' or 'v2'")
+    volt = _get(request, "volt_service")
+    ok = volt.set_meter_dmm(body.target, body.serial)
+    if not ok:
+        raise HTTPException(status_code=502,
+                            detail=f"Could not open meter sn={body.serial} for {body.target.upper()}")
+    return {"connected": True, "target": body.target.lower(), "serial": body.serial}
+
+
+@router.post("/serial/relay")
+def assign_relay(body: AssignRelayRequest, request: Request):
+    """
+    Manually assign a serial port to the relay board at runtime, keeping it
+    separate from the voltage meters (a port a meter holds is rejected).
+    """
+    hw    = _get(request, "hardware")
+    relay = hw.relays
+
+    # Don't steal a port a meter currently holds open.
+    volt = getattr(request.app.state, "volt_service", None)
+    held = set()
+    for m in (getattr(volt, "_v1", None), getattr(volt, "_v2", None)):
+        p = getattr(m, "_port_name", None)
+        if p:
+            held.add(p)
+    if body.port in held:
+        raise HTTPException(status_code=409,
+                            detail=f"{body.port} is in use by a voltage meter")
+
+    baud = body.baud or int(os.getenv("SERIAL_BAUD", "115200"))
+    if not relay.connect(body.port, baud):
+        raise HTTPException(status_code=502,
+                            detail=f"Could not open relay board on {body.port}")
+    request.app.state.relay_port = body.port
+    return {"connected": True, "port": body.port}
 
 
 # ── logs ──────────────────────────────────────────────────────────────────────

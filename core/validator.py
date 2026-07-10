@@ -29,12 +29,17 @@ class TransformerValidator:
 
     def validate(self, data: dict) -> List[ValidationIssue]:
         issues: List[ValidationIssue] = []
+        # The energizing winding's terminals/taps are not routed through the
+        # relay matrix (permanent wiring; excitation is external), so its taps
+        # are exempt from the "tap needs a relay" check.
+        ew_id = (data.get("auto_matrix") or {}).get("energize_winding")
         self._check_basic_info(data, issues)
-        self._check_windings(data.get("primary",  []), "primary",  issues)
-        self._check_windings(data.get("secondary", []), "secondary", issues)
+        self._check_windings(data.get("primary",  []), "primary",  issues, ew_id)
+        self._check_windings(data.get("secondary", []), "secondary", issues, ew_id)
         self._check_pin_uniqueness(data, issues)
         self._check_winding_id_uniqueness(data, issues)
         self._check_tests(data, issues)
+        self._check_tap_rule_coverage(data, issues, ew_id)
         return issues
 
     def has_errors(self, issues: List[ValidationIssue]) -> bool:
@@ -59,9 +64,11 @@ class TransformerValidator:
                                            "No test steps defined — transformer can be saved but not tested"))
 
     def _check_windings(self, windings: List[dict], side: str,
-                        issues: List[ValidationIssue]) -> None:
+                        issues: List[ValidationIssue],
+                        ew_id: Optional[str] = None) -> None:
         for w in windings:
             wid = str(w.get("id", "")).strip()
+            is_energizing = (ew_id is not None and wid == ew_id)
             if not wid:
                 issues.append(ValidationIssue(Severity.ERROR, f"{side}.id",
                                                "Winding ID cannot be empty"))
@@ -94,8 +101,11 @@ class TransformerValidator:
                                                    f"{side}.{wid}.tap[{ti}].voltage",
                                                    f"{wid} tap {ti}: voltage not specified"))
 
-                # A tap takes a single B-side relay (RL17-32); measured start→tap.
-                if tap.get("relay_b") is None:
+                # A measurement tap takes a single A2-side relay (RL17-32),
+                # measured start→tap. The energizing winding's taps are not
+                # routed through the matrix (excitation is external), so they
+                # are exempt from this check.
+                if tap.get("relay_b") is None and not is_energizing:
                     issues.append(ValidationIssue(Severity.WARNING,
                                                    f"{side}.{wid}.tap[{ti}].relay_b",
                                                    f"{wid} tap {ti}: no relay assigned (needs one RL17-32)"))
@@ -109,6 +119,48 @@ class TransformerValidator:
             if len(tap_pins) != len(set(tap_pins)):
                 issues.append(ValidationIssue(Severity.WARNING, f"{side}.{wid}.taps",
                                                f"{wid}: duplicate tap pin numbers detected"))
+
+    def _check_tap_rule_coverage(self, data: dict, issues: List[ValidationIssue],
+                                 ew_id: Optional[str] = None) -> None:
+        """
+        Flag taps that have a relay assigned but no measurement rule referencing
+        them — the stale-rules case where taps were added/changed without
+        regenerating the rules, so their voltage is never measured.
+
+        Only meaningful in rule-driven mode: when auto_matrix is enabled the
+        sweep is generated dynamically (taps always included), and with no rules
+        at all there is nothing to be stale against.
+        """
+        if (data.get("auto_matrix") or {}).get("enabled"):
+            return
+        rules = data.get("ratio_rules") or []
+        if not rules:
+            return
+
+        # Tap nodes ("W:tap<i>") referenced by any enabled rule segment.
+        measured: set = set()
+        for r in rules:
+            if not r.get("enabled", True):
+                continue
+            for seg_key in ("measurement_segment", "excitation_segment"):
+                seg = r.get(seg_key) or {}
+                for node in (seg.get("node_a"), seg.get("node_b")):
+                    if node and ":tap" in str(node):
+                        measured.add(str(node))
+
+        for side in ("primary", "secondary"):
+            for w in data.get(side) or []:
+                wid = str(w.get("id", ""))
+                if wid == ew_id:
+                    continue   # energizing winding taps aren't measured via the matrix
+                for ti, tap in enumerate(w.get("taps") or []):
+                    if tap.get("relay_b") is None:
+                        continue   # unrelayed tap — covered by the relay-assignment check
+                    if f"{wid}:tap{ti}" not in measured:
+                        issues.append(ValidationIssue(Severity.WARNING,
+                                                       f"{side}.{wid}.tap[{ti}]",
+                                                       f"{wid} tap {ti}: has relay RL{tap['relay_b']} but no "
+                                                       f"measurement rule — regenerate rules so it is tested"))
 
     def _check_pin_uniqueness(self, data: dict, issues: List[ValidationIssue]) -> None:
         all_pins: List[int] = []

@@ -119,18 +119,27 @@ The canvas IS the editor — no forms required:
 
 ## Hardware Architecture
 
-### Relay Board (34 relays)
+### Relay Board
+
+The relay groups have **functional** meaning — they are not generic banks.
 
 | Group | Relays | Function |
 |-------|--------|----------|
-| Side A | RL1 – RL16 | Voltmeter **+** probe selection |
-| Side B | RL17 – RL32 | Voltmeter **−** probe selection |
-| Gate A | RL33 | Auto-closes when any RL1-16 is active |
-| Gate B | RL34 | Auto-closes when any RL17-32 is active |
+| **A1** | RL1 – RL16 | Measurement winding **START** nodes (voltmeter + probe) |
+| **A2** | RL17 – RL32 | Measurement winding **END and TAP** nodes (voltmeter − probe) |
+| Gate A | RL33 | Auto-closes when any A-relay is active (firmware) |
+| Gate B | RL34 | Auto-closes when any A-relay is active (firmware) |
+| **B** | RL37 – RL40 | Energizing-winding **tap selection** (excitation domain) |
+| Gate B′ | RL35, RL36 | Auto-close when any Group-B relay is active (firmware) |
 
-**Safety rule:** max ONE relay from RL1–16 and ONE from RL17–32 active simultaneously. Enforced in software (RelayController) and recommended in MCU firmware.
+**Group A = measurement routing. Group B = energizing-winding tap selection.**
 
-Each measurement step activates exactly **[relay_a, relay_b, RL33, RL34]**.
+- A winding **being measured** is routed through Group A: its start → A1, its end/taps → A2. A measurement step closes one A1 + one A2 relay.
+- The **energizing winding is never routed through Group A.** Its start/end are permanent dedicated wiring (not switched); its excitation voltage is read by the **V1 meter**. Excitation-tap selection (Group B) is currently handled **externally** — the PC software does not drive R37–40.
+
+**Safety rule:** max ONE relay from A1, ONE from A2, ONE from B; Groups A and B are mutually exclusive. Enforced by the MCU firmware and mirrored in software (RelayController).
+
+A measurement step needs `relay_a` (A1, RL1–16) and `relay_b` (A2, RL17–32). The PC issues these as two `SELECT`s; the firmware closes the gate relays (RL33/RL34) automatically, so gates are **never sent** by the PC.
 
 ### Serial Communication
 
@@ -138,8 +147,10 @@ Two independent serial ports:
 
 | Port | Direction | Protocol |
 |------|-----------|----------|
-| **Relay MCU** | PC → MCU | `SET_RELAYS:1,17,33,34\r\n` → `OK\r\n` |
+| **Relay MCU** | PC → MCU | `SELECT <n>\r\n` / `CLEAR\r\n` / `STATUS\r\n` (one relay per SELECT; firmware owns gates + exclusivity) |
 | **Voltage Meter** | Meter → PC | Continuous `18.42\r\n` or `VOLTAGE:18.42\r\n` |
+
+> The relay MCU runs the SELECT/CLEAR/STATUS firmware (Arduino Mega 2560 + 74HC595 expanders, active-low). It replies with text (`Selected Relay: 5`, `Matrix Cleared`, a STATUS block), not `OK`; the PC treats any reply without `ERROR` as success and detects the board by its STATUS response.
 
 Configure via **Hardware → Serial Connections…** in the menu.
 

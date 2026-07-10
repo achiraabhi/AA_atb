@@ -22,7 +22,7 @@ try:
 except ImportError:  # pragma: no cover
     _SERIAL_OK = False
 
-from hardware.protocol import parse_voltage, build_ping, RESP_OK
+from hardware.protocol import parse_voltage, build_status, RESP_STATUS_MARK
 
 log = logging.getLogger(__name__)
 
@@ -80,16 +80,17 @@ def classify_port(device: str, baud: int = 115200,
             if parse_voltage(line) is not None:
                 return "voltmeter"
 
-        # 2) Quiet so far — try the relay PING handshake.
+        # 2) Quiet so far — probe the relay MCU with STATUS and look for its
+        #    status block ("===== RELAY STATUS =====").
         try:
             s.reset_input_buffer()
-            s.write(build_ping().encode("ascii"))
+            s.write(build_status().encode("ascii"))
         except Exception:
             return "unknown"
-        deadline = time.time() + 1.0
+        deadline = time.time() + 1.5
         while time.time() < deadline:
-            line = s.readline().decode("ascii", errors="replace").strip()
-            if line.upper().startswith(RESP_OK):
+            line = s.readline().decode("ascii", errors="replace").strip().upper()
+            if RESP_STATUS_MARK in line:
                 return "relay"
         return "unknown"
     except Exception as exc:

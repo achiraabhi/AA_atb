@@ -318,10 +318,30 @@ class UT61EPLUS:
         'not_peak': 78,
     }
 
-    def __init__(self):
-        """open device - auto-detects CP2110 or WCH HID-UART bridge"""
+    def __init__(self, path=None, is_wch=None):
+        """
+        Open the meter.
+
+        path : bytes | None — open this exact HID device (from hid.enumerate()).
+               Use this to pick ONE specific meter when several are plugged in.
+               When None, auto-detect and open the first CP2110/WCH bridge.
+        is_wch : bool | None — when opening by path, whether it is a WCH bridge
+               (skip the CP2110 init). Ignored when path is None.
+        """
         self.dev = hid.device()
         self._wch = False
+
+        if path is not None:
+            self.dev.open_path(path)
+            self._wch = bool(is_wch)
+            if not self._wch:
+                # CP2110 bridge needs UART init
+                self.dev.send_feature_report([0x41, 0x01])  # enable uart
+                self.dev.send_feature_report([0x50, 0x00, 0x00, 0x25, 0x80, 0x00, 0x00, 0x03, 0x00, 0x00])
+                self.dev.send_feature_report([0x43, 0x02])  # purge both fifos
+            log.debug('device opened by path (%s bridge)', 'WCH' if self._wch else 'CP2110')
+            return
+
         try:
             self.dev.open(self.CP2110_VID, self.CP2110_PID)
             log.debug('CP2110 device is open')

@@ -187,22 +187,24 @@ body {
 }
 
 .dash-left {
-  width: 270px; flex-shrink: 0;
+  flex: 1 1 0; min-width: 270px;
   display: flex; flex-direction: column;
   gap: var(--gap);
   overflow-y: auto; overflow-x: hidden;
   min-height: 0;
 }
 .dash-right {
-  width: 290px; flex-shrink: 0;
+  flex: 1 1 0; min-width: 290px;
   display: flex; flex-direction: column;
   gap: var(--gap);
   overflow-y: auto; overflow-x: hidden;
   min-height: 0;
 }
 .dash-center {
-  flex: 1;
-  min-width: 0;
+  /* Small, fixed-fraction diagram column so the side controls can stretch */
+  flex: 0 0 34%;
+  min-width: 340px;
+  max-width: 560px;
   display: flex;
   flex-direction: column;
 }
@@ -1085,6 +1087,42 @@ textarea.input { resize: vertical; font-size: 12px; }
   align-self: flex-end;
   padding-bottom: 2px;
 }
+/* Active-relay readout in the voltage bar */
+.vbar-relays-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--glow);
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vbar-relays-value.idle { color: var(--muted); }
+.vbar-dot.relays-on { background: var(--glow); animation: pulse 2s infinite; }
+
+/* Relay MCU ⇄ PC serial console */
+.relay-comm-log {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  height: 120px;
+  max-height: 120px;
+  overflow-y: auto;
+  background: #0b0f16;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.rc-line { display: block; }
+.rc-time { color: var(--muted); margin-right: 6px; }
+.rc-tx   { color: #7dd3fc; }   /* PC → MCU */
+.rc-rx   { color: #86efac; }   /* MCU → PC */
+.rc-rx.rc-err { color: var(--danger); }
+.rc-info { color: var(--warning); }
 
 /* dash-layout must fill remaining space when batch/voltage bars are visible */
 .dash-layout {

@@ -27,6 +27,12 @@ from core.logger import TestLogger
 from hardware.hardware_interface import HardwareManagerInterface, HardwareStatus
 
 
+# Hold the winding's relays closed for this long on every measurement so the
+# reading is taken on a fully-settled circuit. Applied as a floor: a step whose
+# stabilization_delay_ms asks for longer still gets the longer settle.
+MEASUREMENT_RELAY_HOLD_S = 2.0
+
+
 class TestEngine:
 
     def __init__(self,
@@ -363,7 +369,9 @@ class TestEngine:
             self._log.warn(f"Relay set not fully acked for step {step.index + 1}")
         self._state.set_relay_states(step.relay_map)
 
-        time.sleep(step.stabilization_delay_ms / 1000.0)
+        # Keep the relays energized for the measurement window (≥ 2 s).
+        hold_s = max(step.stabilization_delay_ms / 1000.0, MEASUREMENT_RELAY_HOLD_S)
+        time.sleep(hold_s)
 
         reading = self._hw.voltmeter.read_voltage(step.measurement_channel)
 

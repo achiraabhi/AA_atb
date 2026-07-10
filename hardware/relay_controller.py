@@ -3,14 +3,17 @@ RelayController — safety-enforcing relay board driver.
 
 Implements RelayControllerInterface using RelaySerial for real hardware.
 
-Hardware safety rules (enforced in software AND recommended in MCU firmware):
+Hardware safety rules (now enforced primarily by the MCU firmware; the PC
+mirrors them so the requested state is well-defined before it is sent):
   1. At most ONE relay from RL1–RL16  (Side A) may be active at a time.
   2. At most ONE relay from RL17–RL32 (Side B) may be active at a time.
-  3. RL33 (Gate A) automatically closes when any A-relay is active.
-  4. RL34 (Gate B) automatically closes when any B-relay is active.
+  3. RL33 (Gate A) closes automatically when any A-relay is active.
+  4. RL34 (Gate B) closes automatically when any B-relay is active.
 
-When violations are detected a warning is logged and only the first relay of
-each group is kept — the driver never silently activates an unsafe state.
+The firmware owns the gates and exclusivity; the PC sends only selectable
+relays (RL1–32) via SELECT and never the gate relays (RL33–36). Gate state is
+mirrored locally only for the UI/diagram. When more than one relay per group is
+requested a warning is logged and only the first is kept.
 """
 import threading
 import logging
@@ -23,7 +26,7 @@ from hardware.relay_serial import RelaySerial
 from hardware.protocol import (
     RL_A_MIN, RL_A_MAX, RL_B_MIN, RL_B_MAX,
     RL_GATE_A, RL_GATE_B, RELAY_COUNT,
-    is_group_a, is_group_b,
+    is_group_a, is_group_b, is_gate,
 )
 
 log = logging.getLogger(__name__)
@@ -66,12 +69,12 @@ class RelayController(RelayControllerInterface):
                 current_active = [r for r, s in self._states.items() if s]
             return self.set_relays_safe(current_active + [relay_id])
         else:
+            # Drop one relay, then re-apply whatever remains active.
             with self._lock:
                 self._states[relay_id] = False
-                active = [r for r, s in self._states.items() if s]
-            if self._serial.connected:
-                return self._serial.set_relays(active) if active else self._serial.clear_all()
-            return True
+                active = [r for r, s in self._states.items()
+                          if s and not is_gate(r)]
+            return self.set_relays_safe(active)
 
     def set_all_relays(self, states: Dict[int, bool]) -> bool:
         """Set relays from a {relay_id: bool} map; enforces safety on the True set."""
@@ -80,18 +83,26 @@ class RelayController(RelayControllerInterface):
 
     def set_relays_safe(self, relay_ids: List[int]) -> bool:
         """
-        Activate exactly the listed relays (all others open).
-        Safety: enforce max-one-per-group and auto-add gate relays.
-        """
-        safe_ids  = self._enforce_group_safety(relay_ids)
-        final_ids = self._add_gate_relays(safe_ids)
+        Activate exactly the listed selectable relays (all others open).
 
+        Gate relays in the request are ignored — the firmware closes them
+        automatically. The PC tracks the implied gate state only for the UI.
+        """
+        selectable = self._enforce_group_safety(relay_ids)   # ≤1 A, ≤1 B; no gates
+
+        # Local state mirror (selectable relays + the gates the firmware will
+        # close) so the diagram/relay panel reflect the live hardware state.
+        active = set(selectable)
+        if any(is_group_a(r) for r in selectable):
+            active.add(RL_GATE_A)
+        if any(is_group_b(r) for r in selectable):
+            active.add(RL_GATE_B)
         with self._lock:
             for i in range(1, RELAY_COUNT + 1):
-                self._states[i] = (i in final_ids)
+                self._states[i] = (i in active)
 
         if self._serial.connected:
-            return self._serial.set_relays(final_ids)
+            return self._serial.apply(selectable)
         return True   # software mode
 
     def reset_all_relays(self) -> bool:
@@ -99,15 +110,16 @@ class RelayController(RelayControllerInterface):
             for k in self._states:
                 self._states[k] = False
         if self._serial.connected:
-            return self._serial.clear_all()
+            return self._serial.clear()
         return True
 
     def emergency_stop(self) -> bool:
+        # The firmware has no dedicated ESTOP — CLEAR opens everything.
         with self._lock:
             for k in self._states:
                 self._states[k] = False
         if self._serial.connected:
-            return self._serial.emergency_stop()
+            return self._serial.clear()
         return True
 
     # ── state queries ─────────────────────────────────────────────────────
@@ -134,14 +146,16 @@ class RelayController(RelayControllerInterface):
     @staticmethod
     def _enforce_group_safety(relay_ids: List[int]) -> List[int]:
         """
-        Guarantee at most one A-relay (1-16) and one B-relay (17-32).
-        If duplicates exist, keep only the first and log a warning.
-        Gate relays (33, 34) pass through unchanged.
+        Reduce a request to at most one A-relay (RL1-16) and one B-relay
+        (RL17-32). Gate relays (RL33-36) are dropped — the firmware controls
+        them. If duplicates exist, keep only the first and log a warning.
         """
         a_relays = [r for r in relay_ids if is_group_a(r)]
         b_relays = [r for r in relay_ids if is_group_b(r)]
-        gates    = [r for r in relay_ids if r in (RL_GATE_A, RL_GATE_B)]
+        dropped  = [r for r in relay_ids if is_gate(r)]
 
+        if dropped:
+            log.debug(f"Ignoring gate relays in request {dropped} — firmware-controlled")
         if len(a_relays) > 1:
             log.warning(
                 f"SAFETY: {len(a_relays)} A-relays requested {a_relays}; "
@@ -158,15 +172,4 @@ class RelayController(RelayControllerInterface):
             result.append(a_relays[0])
         if b_relays:
             result.append(b_relays[0])
-        result.extend(g for g in gates if g not in result)
-        return result
-
-    @staticmethod
-    def _add_gate_relays(relay_ids: List[int]) -> List[int]:
-        """Automatically add gate relays based on which groups are active."""
-        result = list(relay_ids)
-        if any(is_group_a(r) for r in relay_ids) and RL_GATE_A not in result:
-            result.append(RL_GATE_A)
-        if any(is_group_b(r) for r in relay_ids) and RL_GATE_B not in result:
-            result.append(RL_GATE_B)
         return result

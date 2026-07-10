@@ -22,7 +22,9 @@
       "relay_b": null,
       "meas_channel": -1,
       "taps": [],
-      "coords": {}
+      "coords": {},
+      "wire_color_start": "#dc2626",
+      "wire_color_end": "#059669"
     },
     {
       "id": "P2",
@@ -31,11 +33,13 @@
       "end_pin": 4,
       "voltage": 230,
       "dot_polarity": true,
-      "relay_a": null,
-      "relay_b": null,
+      "relay_a": 1,
+      "relay_b": 17,
       "meas_channel": -1,
       "taps": [],
-      "coords": {}
+      "coords": {},
+      "wire_color_start": "#2563eb",
+      "wire_color_end": "#d97706"
     }
   ],
   "secondary": [
@@ -46,26 +50,25 @@
       "end_pin": 101,
       "voltage": 115,
       "dot_polarity": true,
-      "relay_a": null,
-      "relay_b": null,
+      "relay_a": 2,
+      "relay_b": 18,
       "meas_channel": -1,
       "taps": [
         {
           "pin": 0,
           "voltage": 0,
           "label": "T1",
-          "relay_a": null,
-          "relay_b": null
+          "relay_b": 19
         },
         {
           "pin": 0,
           "voltage": 0,
           "label": "T2",
-          "relay_a": null,
-          "relay_b": null
+          "relay_b": 20
         }
       ],
-      "coords": {}
+      "coords": {},
+      "wire_color_start": "#7c3aed"
     },
     {
       "id": "S3",
@@ -74,32 +77,34 @@
       "end_pin": 105,
       "voltage": 115,
       "dot_polarity": true,
-      "relay_a": null,
-      "relay_b": null,
+      "relay_a": 3,
+      "relay_b": 21,
       "meas_channel": -1,
       "taps": [
         {
           "pin": 0,
           "voltage": 0,
           "label": "T1",
-          "relay_a": null,
-          "relay_b": null
+          "relay_b": 22,
+          "wire_color": "#dc2626"
         },
         {
           "pin": 0,
           "voltage": 0,
           "label": "T2",
-          "relay_a": null,
-          "relay_b": null
+          "relay_b": 23,
+          "wire_color": "#059669"
         }
       ],
-      "coords": {}
+      "coords": {},
+      "wire_color_start": "#7c3aed",
+      "wire_color_end": "#475569"
     }
   ],
   "tests": [],
   "ratio_rules": [
     {
-      "id": "auto_01000832",
+      "id": "auto_e5c1d290",
       "excitation_segment": {
         "node_a": "P1",
         "node_b": "P1:end",
@@ -110,7 +115,7 @@
         "node_b": "P2:end",
         "nominal_voltage": 230
       },
-      "tolerance_percent": 5.0,
+      "tolerance_percent": 5,
       "minimum_absolute_delta": 0.1,
       "measurement_type": "AC",
       "critical": true,
@@ -118,7 +123,7 @@
       "_label": "P2  230V"
     },
     {
-      "id": "auto_836d7554",
+      "id": "auto_e6f6696b",
       "excitation_segment": {
         "node_a": "P1",
         "node_b": "P1:end",
@@ -129,7 +134,7 @@
         "node_b": "S1:end",
         "nominal_voltage": 115
       },
-      "tolerance_percent": 5.0,
+      "tolerance_percent": 5,
       "minimum_absolute_delta": 0.1,
       "measurement_type": "AC",
       "critical": true,
@@ -137,7 +142,45 @@
       "_label": "S1  115V"
     },
     {
-      "id": "auto_e3ce6776",
+      "id": "auto_0c9a486c",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S1",
+        "node_b": "S1:tap0",
+        "nominal_voltage": 0
+      },
+      "tolerance_percent": 5,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "S1 @ T1  (0.0V)"
+    },
+    {
+      "id": "auto_2cb67e59",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S1",
+        "node_b": "S1:tap1",
+        "nominal_voltage": 0
+      },
+      "tolerance_percent": 5,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "S1 @ T2  (0.0V)"
+    },
+    {
+      "id": "auto_cd4162d2",
       "excitation_segment": {
         "node_a": "P1",
         "node_b": "P1:end",
@@ -148,12 +191,50 @@
         "node_b": "S3:end",
         "nominal_voltage": 115
       },
-      "tolerance_percent": 5.0,
+      "tolerance_percent": 5,
       "minimum_absolute_delta": 0.1,
       "measurement_type": "AC",
       "critical": true,
       "enabled": true,
       "_label": "S3  115V"
+    },
+    {
+      "id": "auto_6d30aa6d",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S3",
+        "node_b": "S3:tap0",
+        "nominal_voltage": 0
+      },
+      "tolerance_percent": 5,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "S3 @ T1  (0.0V)"
+    },
+    {
+      "id": "auto_3add980a",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S3",
+        "node_b": "S3:tap1",
+        "nominal_voltage": 0
+      },
+      "tolerance_percent": 5,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "S3 @ T2  (0.0V)"
     }
   ]
 }

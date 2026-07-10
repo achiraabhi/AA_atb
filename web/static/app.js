@@ -180,6 +180,10 @@ function dispatchWsEvent(msg) {
       renderVoltageBar(data);
       break;
 
+    case 'relay_comm':
+      appendRelayComm(data.entries || []);
+      break;
+
     case 'active_measurement_changed':
       state.activePrimary   = data.from_winding;
       state.activeSecondary = data.to_winding;
@@ -600,40 +604,42 @@ function renderProgress() {
 function renderRelayGrid() {
   const { relayStates } = state;
   const isOn = id => Boolean(relayStates[String(id)]);
-  let activeCount = 0;
+  const active = [];
 
-  const rowA = el('relays-a');
-  if (rowA.children.length === 0) buildRelayRow(rowA, 1, 16);
-  for (let id = 1; id <= 16; id++) {
-    const btn = rowA.querySelector(`[data-rl="${id}"]`);
-    if (!btn) continue;
-    const on = isOn(id);
-    if (on) activeCount++;
-    btn.className = 'relay-btn' + (on ? ' on-a' : '');
+  const paint = (rowId, from, to, cls) => {
+    const row = el(rowId);
+    if (!row) return;
+    if (row.children.length === 0) buildRelayRow(row, from, to);
+    for (let id = from; id <= to; id++) {
+      const btn = row.querySelector(`[data-rl="${id}"]`);
+      if (!btn) continue;
+      const on = isOn(id);
+      if (on) active.push(id);
+      btn.className = 'relay-btn' + (on ? ' ' + cls : '');
+    }
+  };
+
+  paint('relays-a',    1, 16, 'on-a');     // A1 — start nodes
+  paint('relays-b',   17, 32, 'on-b');     // A2 — end / tap nodes
+  paint('relays-b2',  37, 40, 'on-b');     // B  — energize tap
+  paint('relays-gate', 33, 36, 'on-gate'); // gates (A: 33/34, B: 35/36)
+
+  el('relay-count').textContent = `${active.length} active`;
+  el('relay-count').style.color = active.length > 0 ? 'var(--glow)' : 'var(--muted)';
+
+  // Mirror active relays into the voltage bar.
+  const vb = el('vbar-relays');
+  const dot = el('vbar-relays-dot');
+  if (vb) {
+    if (active.length) {
+      vb.textContent = active.map(id => `R${id}`).join(' ');
+      vb.classList.remove('idle');
+    } else {
+      vb.textContent = 'none';
+      vb.classList.add('idle');
+    }
   }
-
-  const rowB = el('relays-b');
-  if (rowB.children.length === 0) buildRelayRow(rowB, 17, 32);
-  for (let id = 17; id <= 32; id++) {
-    const btn = rowB.querySelector(`[data-rl="${id}"]`);
-    if (!btn) continue;
-    const on = isOn(id);
-    if (on) activeCount++;
-    btn.className = 'relay-btn' + (on ? ' on-b' : '');
-  }
-
-  const rowG = el('relays-gate');
-  if (rowG.children.length === 0) buildRelayRow(rowG, 33, 34);
-  for (const id of [33, 34]) {
-    const btn = rowG.querySelector(`[data-rl="${id}"]`);
-    if (!btn) continue;
-    const on = isOn(id);
-    if (on) activeCount++;
-    btn.className = 'relay-btn' + (on ? ' on-gate' : '');
-  }
-
-  el('relay-count').textContent = `${activeCount} active`;
-  el('relay-count').style.color = activeCount > 0 ? 'var(--glow)' : 'var(--muted)';
+  if (dot) dot.className = 'vbar-dot' + (active.length ? ' relays-on' : ' off');
 }
 
 function buildRelayRow(container, from, to) {
@@ -645,6 +651,35 @@ function buildRelayRow(container, from, to) {
     btn.textContent = id;
     container.appendChild(btn);
   }
+}
+
+// Append relay MCU ⇄ PC serial traffic to the console panel.
+function appendRelayComm(entries) {
+  const box = el('relay-comm-log');
+  if (!box || !entries.length) return;
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+  const pad = n => String(n).padStart(2, '0');
+  for (const e of entries) {
+    const line = document.createElement('span');
+    let cls = 'rc-line ';
+    if (e.dir === 'TX')      cls += 'rc-tx';
+    else if (e.dir === 'RX') cls += 'rc-rx' + (/error/i.test(e.text) ? ' rc-err' : '');
+    else                     cls += 'rc-info';
+    line.className = cls;
+    const t  = new Date((e.ts || Date.now() / 1000) * 1000);
+    const ts = `${pad(t.getHours())}:${pad(t.getMinutes())}:${pad(t.getSeconds())}`;
+    const arrow = e.dir === 'TX' ? '→' : e.dir === 'RX' ? '←' : '·';
+    const tspan = document.createElement('span');
+    tspan.className = 'rc-time';
+    tspan.textContent = ts;
+    line.appendChild(tspan);
+    line.appendChild(document.createTextNode(`${arrow} ${e.text}`));
+    box.appendChild(line);
+  }
+  while (box.children.length > 300) box.removeChild(box.firstChild);
+  if (atBottom) box.scrollTop = box.scrollHeight;
+  const st = el('relay-comm-status');
+  if (st) { st.textContent = 'live'; st.style.color = 'var(--glow)'; }
 }
 
 function renderVoltageBar(data) {
@@ -1331,6 +1366,14 @@ function _showInspector(sel) {
 
   if (!sel) return;
 
+  // The energizing winding is never routed through the relay matrix, so its
+  // (and its taps') relay assignment is disabled with an explanatory note.
+  const ewId = topoEditor?.config?.auto_matrix?.energize_winding || null;
+  const isEnergizing = ewId != null && sel.data && (
+    sel.type === 'winding' ? sel.data.id === ewId : sel.wIndex != null &&
+      topoEditor?.config?.[sel.side]?.[sel.wIndex]?.id === ewId
+  );
+
   if (sel.type === 'winding') {
     el('inspector-winding').classList.remove('hidden');
     const badge = el('insp-badge');
@@ -1341,10 +1384,18 @@ function _showInspector(sel) {
     el('insp-voltage').value   = w.voltage;
     el('insp-start-pin').value = w.start_pin;
     el('insp-end-pin').value   = w.end_pin;
-    el('insp-relay-a').textContent = w.relay_a != null ? `RL${w.relay_a}` : 'None';
-    el('insp-relay-a').className   = 'relay-assign-btn' + (w.relay_a != null ? ' assigned-a' : '');
-    el('insp-relay-b').textContent = w.relay_b != null ? `RL${w.relay_b}` : 'None';
-    el('insp-relay-b').className   = 'relay-assign-btn' + (w.relay_b != null ? ' assigned-b' : '');
+    const ra = el('insp-relay-a'), rb = el('insp-relay-b');
+    el('insp-energize-note').classList.toggle('hidden', !isEnergizing);
+    ra.disabled = rb.disabled = isEnergizing;
+    if (isEnergizing) {
+      ra.textContent = rb.textContent = '— permanent —';
+      ra.className = rb.className = 'relay-assign-btn';
+    } else {
+      ra.textContent = w.relay_a != null ? `RL${w.relay_a}` : 'None';
+      ra.className   = 'relay-assign-btn' + (w.relay_a != null ? ' assigned-a' : '');
+      rb.textContent = w.relay_b != null ? `RL${w.relay_b}` : 'None';
+      rb.className   = 'relay-assign-btn' + (w.relay_b != null ? ' assigned-b' : '');
+    }
     el('insp-wire-color-start').value = w.wire_color_start || w.wire_color || '#1a3d6e';
     el('insp-wire-color-end').value   = w.wire_color_end   || w.wire_color || '#1a3d6e';
   } else if (sel.type === 'tap') {
@@ -1353,8 +1404,16 @@ function _showInspector(sel) {
     el('insp-tap-label').value   = t.label || '';
     el('insp-tap-pin').value     = t.pin;
     el('insp-tap-voltage').value = t.voltage;
-    el('insp-tap-relay-b').textContent = t.relay_b != null ? `RL${t.relay_b}` : 'None';
-    el('insp-tap-relay-b').className   = 'relay-assign-btn' + (t.relay_b != null ? ' assigned-b' : '');
+    const trb = el('insp-tap-relay-b');
+    el('insp-tap-energize-note').classList.toggle('hidden', !isEnergizing);
+    trb.disabled = isEnergizing;
+    if (isEnergizing) {
+      trb.textContent = '— external —';
+      trb.className   = 'relay-assign-btn';
+    } else {
+      trb.textContent = t.relay_b != null ? `RL${t.relay_b}` : 'None';
+      trb.className   = 'relay-assign-btn' + (t.relay_b != null ? ' assigned-b' : '');
+    }
     el('insp-tap-wire-color').value    = t.wire_color || '#1a3d6e';
   }
 }
@@ -1757,7 +1816,8 @@ function showRelayPicker(group, currentVal, callback, anchorEl) {
   const btnsEl   = el('rp-buttons');
 
   const range = group === 'A' ? [1, 16] : [17, 32];
-  el('rp-title').textContent = `RL${range[0]}–RL${range[1]}`;
+  const name  = group === 'A' ? 'A1 · Start node' : 'A2 · End / Tap node';
+  el('rp-title').textContent = `${name}  (RL${range[0]}–RL${range[1]})`;
 
   btnsEl.innerHTML = '';
   for (let rl = range[0]; rl <= range[1]; rl++) {
@@ -1816,13 +1876,57 @@ async function scanPorts() {
   status.textContent = 'Scanning…';
   try {
     const { ports } = await apiGet('/serial/ports');
-    fillPortSelect('ports-v1', ports, 'v1');
-    // V2 is the UT61B+ over USB-HID — no serial port to assign.
+    fillPortSelect('ports-relay', ports, 'relay');
+    await refreshDmms();
     status.textContent = ports.length
       ? `${ports.length} port${ports.length === 1 ? '' : 's'} found`
       : 'No serial ports detected';
   } catch (e) {
     status.textContent = 'Scan failed';
+    console.error(e);
+  }
+}
+
+// Populate the V1/V2 UNI-T meter selectors (by serial).
+async function refreshDmms() {
+  let data;
+  try { data = await apiGet('/serial/dmms'); }
+  catch { return; }
+  const meters = data.meters || [];
+  for (const target of ['v1', 'v2']) {
+    const sel = el(`dmm-${target}`);
+    if (!sel) continue;
+    const cur = data[target];                 // serial currently on this channel
+    sel.innerHTML = '';
+    if (!meters.length) {
+      const o = document.createElement('option');
+      o.value = ''; o.textContent = '— no UT61B+ found —';
+      sel.appendChild(o);
+      continue;
+    }
+    for (const m of meters) {
+      const o = document.createElement('option');
+      o.value = m.serial || '';
+      let label = m.serial || '(no serial)';
+      if (m.assigned) label += `  [${m.assigned.toUpperCase()}]`;
+      o.textContent = label;
+      sel.appendChild(o);
+    }
+    sel.value = cur || (meters[0] && meters[0].serial) || '';
+  }
+}
+
+async function assignDmm(target) {
+  const serial = el(`dmm-${target}`).value;
+  const status = el('ports-status');
+  if (!serial) { status.textContent = 'No meter to assign'; return; }
+  status.textContent = `Assigning ${target.toUpperCase()} → ${serial}…`;
+  try {
+    await apiPost('/serial/dmm', { target, serial });
+    status.textContent = `${target.toUpperCase()} → meter ${serial}`;
+    refreshDmms();
+  } catch (e) {
+    status.textContent = `${target.toUpperCase()} assign failed (meter busy?)`;
     console.error(e);
   }
 }
@@ -1848,13 +1952,31 @@ function fillPortSelect(selectId, ports, target) {
     sel.appendChild(opt);
   }
   // Preselect, in order: prior choice → port already on this target →
-  // first detected voltmeter not already in use → first port.
+  // first detected port of the matching kind → first port.
+  const wantType   = target === 'relay' ? 'relay' : 'voltmeter';
   const onTarget   = ports.find(p => p.assigned === target);
-  const freeMeter  = ports.find(p => p.type === 'voltmeter' && !p.assigned);
+  const freeMatch  = ports.find(p => p.type === wantType && !p.assigned);
   sel.value = (prev && ports.some(p => p.device === prev)) ? prev
-            : onTarget  ? onTarget.device
-            : freeMeter ? freeMeter.device
+            : onTarget   ? onTarget.device
+            : freeMatch  ? freeMatch.device
             : ports[0].device;
+}
+
+async function assignRelay() {
+  const port = el('ports-relay').value;
+  const baud = parseInt(el('ports-baud').value, 10) || 115200;
+  const status = el('ports-status');
+  if (!port) { status.textContent = 'Pick a port first'; return; }
+  status.textContent = `Assigning Relay → ${port}…`;
+  try {
+    await apiPost('/serial/relay', { port, baud });
+    status.textContent = `Relay board connected on ${port}`;
+    refreshRelayStatus();
+    scanPorts();
+  } catch (e) {
+    status.textContent = 'Relay assign failed — port busy or not a relay';
+    console.error(e);
+  }
 }
 
 async function assignPort(target) {
@@ -1879,8 +2001,9 @@ function bindPortsModal() {
   el('ports-close').addEventListener('click', closePortsModal);
   el('ports-backdrop').addEventListener('click', closePortsModal);
   el('ports-scan').addEventListener('click', scanPorts);
-  el('ports-assign-v1').addEventListener('click', () => assignPort('v1'));
-  // V2 (UT61B+, USB-HID) has no serial port to assign.
+  el('ports-assign-relay').addEventListener('click', assignRelay);
+  el('ports-assign-dmm-v1').addEventListener('click', () => assignDmm('v1'));
+  el('ports-assign-dmm-v2').addEventListener('click', () => assignDmm('v2'));
 }
 
 // ── utilities ─────────────────────────────────────────────────────────────────
@@ -1902,11 +2025,85 @@ function objKeysToStr(obj) {
 
 // ── boot ──────────────────────────────────────────────────────────────────────
 
+// ── relay board connect/status ──────────────────────────────────────────────
+async function refreshRelayStatus() {
+  try {
+    const s = await apiGet('/hardware/status');
+    const connected = s.relay_controller === 'CONNECTED';
+    const btn = el('btn-relay-connect');
+    const st  = el('relay-comm-status');
+    if (btn) btn.classList.toggle('hidden', connected);
+    if (st && !connected) { st.textContent = 'disconnected'; st.style.color = 'var(--danger)'; }
+  } catch { /* server not ready */ }
+}
+
+function bindRelayConnect() {
+  const btn = el('btn-relay-connect');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const st = el('relay-comm-status');
+    btn.disabled = true;
+    if (st) { st.textContent = 'connecting…'; st.style.color = 'var(--warning)'; }
+    try {
+      const r = await apiPost('/hardware/relay/connect', {});
+      if (st) { st.textContent = 'connected ' + (r.port || ''); st.style.color = 'var(--glow)'; }
+      btn.classList.add('hidden');
+    } catch (e) {
+      if (st) { st.textContent = 'no relay found'; st.style.color = 'var(--danger)'; }
+    } finally {
+      btn.disabled = false;
+      refreshRelayStatus();
+    }
+  });
+}
+
+// ── relay diagnostic sequence ─────────────────────────────────────────────────
+let _relaySeqRunning = false;
+let _relaySeqTimer   = null;
+
+function _resetRelaySeqBtn() {
+  _relaySeqRunning = false;
+  if (_relaySeqTimer) { clearTimeout(_relaySeqTimer); _relaySeqTimer = null; }
+  const btn = el('btn-relay-seq');
+  if (btn) { btn.textContent = '🔧 Diagnostic'; btn.disabled = false; }
+}
+
+function bindRelayDiagnostic() {
+  const btn = el('btn-relay-seq');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    if (_relaySeqRunning) {
+      btn.disabled = true;
+      try { await apiPost('/relays/sequence/stop'); } catch {}
+      _resetRelaySeqBtn();
+      return;
+    }
+    btn.disabled = true;
+    try {
+      const r = await apiPost('/relays/sequence');
+      _relaySeqRunning = true;
+      btn.textContent = '⏹ Stop Sequence';
+      btn.disabled = false;
+      // Auto-revert the button when the run should be finished (dwell × steps).
+      const ms = (r.steps || 0) * (r.dwell_ms || 1000) + 500;
+      _relaySeqTimer = setTimeout(_resetRelaySeqBtn, ms);
+    } catch (e) {
+      _resetRelaySeqBtn();
+      console.error(e);
+      alert('Relay sequence could not start.\n\nSelect a transformer that has assigned relays, and make sure no test is running.');
+    }
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   initCanvas();
   bindTabs();
   bindControlPanel();
   bindPortsModal();
+  bindRelayConnect();
+  bindRelayDiagnostic();
   loadTransformerList();
   connectWS();
+  refreshRelayStatus();
+  setInterval(refreshRelayStatus, 5000);   // surface the Connect button if it drops
 });

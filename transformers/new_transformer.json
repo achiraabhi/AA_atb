@@ -1,12 +1,12 @@
 {
-  "name": "New Transformer333",
+  "name": "testing1",
   "transformer_id": "new_transformer",
   "type": "unknown",
   "rated_power_va": 0,
   "rated_frequency_hz": 50,
   "notes": "",
   "auto_matrix": {
-    "enabled": true,
+    "enabled": false,
     "energize_winding": "P1",
     "energize_tap_index": null
   },
@@ -28,8 +28,8 @@
       "meas_channel": -1,
       "taps": [],
       "coords": {},
-      "wire_color_start": "#dc2626",
-      "wire_color_end": "#059669"
+      "wire_color_start": "#78716c",
+      "wire_color_end": "#2563eb"
     }
   ],
   "secondary": [
@@ -38,15 +38,105 @@
       "winding_type": "basic_winding",
       "start_pin": 100,
       "end_pin": 101,
-      "voltage": 115,
+      "voltage": 8,
       "dot_polarity": true,
-      "relay_a": null,
-      "relay_b": null,
+      "relay_a": 1,
+      "relay_b": 17,
       "meas_channel": -1,
       "taps": [],
-      "coords": {}
+      "coords": {},
+      "wire_color_start": "#dc2626",
+      "wire_color_end": "#d97706"
+    },
+    {
+      "id": "S2",
+      "winding_type": "basic_winding",
+      "start_pin": 102,
+      "end_pin": 103,
+      "voltage": 8,
+      "dot_polarity": true,
+      "relay_a": 2,
+      "relay_b": 18,
+      "meas_channel": -1,
+      "taps": [],
+      "coords": {},
+      "wire_color_start": "#475569",
+      "wire_color_end": "#059669"
+    },
+    {
+      "id": "S3",
+      "winding_type": "basic_winding",
+      "start_pin": 104,
+      "end_pin": 105,
+      "voltage": 12,
+      "dot_polarity": true,
+      "relay_a": 3,
+      "relay_b": 19,
+      "meas_channel": -1,
+      "taps": [],
+      "coords": {},
+      "wire_color_start": "#18243a",
+      "wire_color_end": "#64748b"
     }
   ],
   "tests": [],
-  "ratio_rules": []
+  "ratio_rules": [
+    {
+      "id": "auto_47a300c3",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S1",
+        "node_b": "S1:end",
+        "nominal_voltage": 8
+      },
+      "tolerance_percent": 5.0,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "S1  8V"
+    },
+    {
+      "id": "auto_baa17c3d",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S2",
+        "node_b": "S2:end",
+        "nominal_voltage": 8
+      },
+      "tolerance_percent": 5.0,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "S2  8V"
+    },
+    {
+      "id": "auto_86376dd1",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S3",
+        "node_b": "S3:end",
+        "nominal_voltage": 12
+      },
+      "tolerance_percent": 5.0,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "S3  12V"
+    }
+  ]
 }

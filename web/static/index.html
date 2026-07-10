@@ -88,6 +88,12 @@
         <span class="vbar-unit">V</span>
       </div>
       <div class="vbar-divider"></div>
+      <div class="vbar-item vbar-relays-item">
+        <span class="vbar-dot" id="vbar-relays-dot"></span>
+        <span class="vbar-label">ACTIVE RELAYS</span>
+        <span id="vbar-relays" class="vbar-relays-value">—</span>
+      </div>
+      <div class="vbar-divider"></div>
       <button id="btn-ports" class="btn btn-sm vbar-ports-btn" title="Scan &amp; assign serial ports">⚙ Ports</button>
     </div>
 
@@ -177,21 +183,39 @@
           </div>
         </div>
 
+        <!-- Relay MCU ⇄ PC serial console -->
+        <div class="panel" id="relay-comm-panel">
+          <div class="panel-hdr">
+            <span class="panel-title">Relay MCU ⇄ PC</span>
+            <button id="btn-relay-connect" class="btn btn-sm hidden" style="margin-left:auto;margin-right:8px;padding:2px 10px">⚡ Connect</button>
+            <span id="relay-comm-status" class="relay-count">idle</span>
+          </div>
+          <div class="panel-body">
+            <div id="relay-comm-log" class="relay-comm-log"></div>
+          </div>
+        </div>
+
         <!-- Relay grid -->
         <div class="panel" id="relay-panel">
           <div class="panel-hdr">
             <span class="panel-title">Relay Matrix</span>
+            <button id="btn-relay-seq" class="btn btn-sm"
+                    title="Diagnostic: energize each assigned relay (and its gate) for 1 second"
+                    style="margin-left:auto;margin-right:8px;padding:2px 10px">🔧 Diagnostic</button>
             <span id="relay-count" class="relay-count">0 active</span>
           </div>
 
           <div class="panel-body">
-            <div class="relay-group-label">Side A — Voltmeter <span class="col-a">+</span></div>
+            <div class="relay-group-label">A1 — Measure: Start nodes <span class="col-a">(RL1–16)</span></div>
             <div id="relays-a" class="relay-row"></div>
 
-            <div class="relay-group-label" style="margin-top:10px">Side B — Voltmeter <span class="col-b">−</span></div>
+            <div class="relay-group-label" style="margin-top:10px">A2 — Measure: End / Tap nodes <span class="col-b">(RL17–32)</span></div>
             <div id="relays-b" class="relay-row"></div>
 
-            <div class="relay-group-label" style="margin-top:10px">Gate Relays</div>
+            <div class="relay-group-label" style="margin-top:10px">B — Energize tap <span class="col-b">(RL37–40, external)</span></div>
+            <div id="relays-b2" class="relay-row"></div>
+
+            <div class="relay-group-label" style="margin-top:10px">Gate Relays <span class="col-b">(RL33–36, auto)</span></div>
             <div id="relays-gate" class="relay-row"></div>
           </div>
         </div>
@@ -453,8 +477,11 @@
                   <input id="insp-end-pin" type="number" class="input" />
                 </div>
               </div>
+              <div id="insp-energize-note" class="hidden" style="margin:4px 0 8px;padding:6px 8px;border-radius:4px;background:rgba(217,119,6,0.12);border:1px solid rgba(217,119,6,0.4);font-size:11px;color:#b45309">
+                ⚡ Energizing winding — terminals are permanent wiring and are <b>not</b> routed through the relay matrix. No measurement relay is assigned (excitation is external).
+              </div>
               <div class="field">
-                <label class="label">Relay A <span class="col-a">(+)</span> — Start Wire</label>
+                <label class="label">Start node → <span class="col-a">A1 (RL1–16)</span></label>
                 <div style="display:flex;gap:6px">
                   <button id="insp-relay-a" class="relay-assign-btn" data-group="A" style="flex:1">None</button>
                   <select id="insp-wire-color-start" class="input" style="flex:0 0 90px">
@@ -473,7 +500,7 @@
                 </div>
               </div>
               <div class="field">
-                <label class="label">Relay B <span class="col-b">(−)</span> — End Wire</label>
+                <label class="label">End node → <span class="col-b">A2 (RL17–32)</span></label>
                 <div style="display:flex;gap:6px">
                   <button id="insp-relay-b" class="relay-assign-btn" data-group="B" style="flex:1">None</button>
                   <select id="insp-wire-color-end" class="input" style="flex:0 0 90px">
@@ -607,8 +634,11 @@
                 <label class="label">Voltage (V)</label>
                 <input id="insp-tap-voltage" type="number" class="input" />
               </div>
+              <div id="insp-tap-energize-note" class="hidden" style="margin:4px 0 8px;padding:6px 8px;border-radius:4px;background:rgba(217,119,6,0.12);border:1px solid rgba(217,119,6,0.4);font-size:11px;color:#b45309">
+                ⚡ Tap of the energizing winding — selected externally (Group B), not routed through the measurement matrix. No relay assigned.
+              </div>
               <div class="field">
-                <label class="label">Relay <span class="col-b">(− bus, RL17–32)</span></label>
+                <label class="label">Tap node → <span class="col-b">A2 (RL17–32)</span></label>
                 <button id="insp-tap-relay-b" class="relay-assign-btn" data-group="B">None</button>
               </div>
               <div class="field">
@@ -674,7 +704,7 @@
 <div id="ports-backdrop" class="rp-backdrop hidden"></div>
 <div id="ports-modal" class="ports-modal hidden">
   <div class="rp-header">
-    <span>Voltage Meter Serial Ports</span>
+    <span>Serial Port Assignment</span>
     <button id="ports-close" class="rp-close">✕</button>
   </div>
   <div class="ports-body">
@@ -683,13 +713,19 @@
       <span id="ports-status" class="muted"></span>
     </div>
     <div class="ports-row">
-      <label class="ports-label">V1 — Energizing</label>
-      <select id="ports-v1" class="ports-select"></select>
-      <button id="ports-assign-v1" class="btn btn-sm">Assign</button>
+      <label class="ports-label">Relay Board</label>
+      <select id="ports-relay" class="ports-select"></select>
+      <button id="ports-assign-relay" class="btn btn-sm">Assign</button>
     </div>
     <div class="ports-row">
-      <label class="ports-label">V2 — Measurement</label>
-      <span id="ports-v2" class="muted">UT61B+ · USB-HID (auto-detected, no port)</span>
+      <label class="ports-label">V1 — Energizing (UT61B+)</label>
+      <select id="dmm-v1" class="ports-select"></select>
+      <button id="ports-assign-dmm-v1" class="btn btn-sm">Assign</button>
+    </div>
+    <div class="ports-row">
+      <label class="ports-label">V2 — Measurement (UT61B+)</label>
+      <select id="dmm-v2" class="ports-select"></select>
+      <button id="ports-assign-dmm-v2" class="btn btn-sm">Assign</button>
     </div>
     <div class="ports-baud-row">
       <label class="ports-label">Baud</label>
@@ -698,8 +734,8 @@
   </div>
 </div>
 
-<script src="/static/canvas.js?v=7"></script>
-<script src="/static/editor.js?v=7"></script>
-<script src="/static/app.js?v=9"></script>
+<script src="/static/canvas.js?v=11"></script>
+<script src="/static/editor.js?v=11"></script>
+<script src="/static/app.js?v=11"></script>
 </body>
 </html>

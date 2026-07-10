@@ -1,18 +1,28 @@
 """
 Serial protocol constants and message builders.
 
-Relay MCU (bidirectional):
-  PC → MCU  :  SET_RELAYS:1,2,33,34\r\n | CLEAR_ALL\r\n | ESTOP\r\n | PING\r\n
-  MCU → PC  :  OK\r\n | ERROR:<reason>\r\n
+Relay MCU (SELECT/CLEAR/STATUS firmware on the Arduino Mega 2560):
+  PC → MCU  :  SELECT <n>\r\n | CLEAR\r\n | STATUS\r\n
+  MCU → PC  :  "Selected Relay: <n>" | "Matrix Cleared" | a STATUS block.
+               Errors come back as a line containing "ERROR".
+
+  The firmware owns gate control, subgroup exclusivity (one of RL1-16, one of
+  RL17-32, one of RL37-40) and group exclusivity. It sets ONE relay per SELECT
+  and keeps a prior subgroup selection active, so a measurement that needs both
+  an A-side and a B-side relay is issued as two SELECTs. The PC therefore:
+    - sends ONLY selectable relays (never the gate relays RL33-36), and
+    - never lists the gates explicitly — the firmware closes them itself.
 
 Voltage Meter (continuous output, PC reads only):
   Meter → PC:  18.42\r\n   OR   VOLTAGE:18.42\r\n
 
-Relay board layout:
-  RL1  – RL16  : Side-A relays  (connect a node to voltmeter + bus)
-  RL17 – RL32  : Side-B relays  (connect a node to voltmeter − bus)
-  RL33          : Gate relay A   (connects + bus to voltmeter input)
-  RL34          : Gate relay B   (connects − bus to voltmeter input)
+Relay board layout (PC view — maps onto the firmware's Group A):
+  RL1  – RL16  : Side-A relays  (connect a node to voltmeter + bus)  ≙ firmware A1
+  RL17 – RL32  : Side-B relays  (connect a node to voltmeter − bus)  ≙ firmware A2
+  RL33          : Gate relay A   (auto, firmware-controlled)
+  RL34          : Gate relay B   (auto, firmware-controlled)
+  RL35, RL36    : firmware Group-B gates (auto; unused by the PC)
+  RL37 – RL40   : firmware Group B outputs (unused by the PC)
 """
 from typing import List, Optional
 
@@ -31,13 +41,27 @@ DEFAULT_BAUD_MCU   = 115200
 DEFAULT_BAUD_METER = 9600
 
 # ── relay MCU command strings ──────────────────────────────────────────────
-CMD_SET_RELAYS = "SET_RELAYS"
-CMD_CLEAR_ALL  = "CLEAR_ALL"
-CMD_ESTOP      = "ESTOP"
-CMD_PING       = "PING"
+CMD_SELECT = "SELECT"
+CMD_CLEAR  = "CLEAR"
+CMD_STATUS = "STATUS"
 
-RESP_OK    = "OK"
-RESP_ERROR = "ERROR"
+# The firmware does not reply "OK"; a command succeeds unless its reply contains
+# this marker. STATUS replies include this header (used for port detection).
+RESP_ERROR        = "ERROR"
+RESP_STATUS_MARK  = "RELAY STATUS"
+
+# Reserved gate relays the PC must never send (firmware rejects them and
+# controls them automatically).
+GATE_RELAYS = (33, 34, 35, 36)
+
+
+def is_protected_gate(relay_id: int) -> bool:
+    return relay_id in GATE_RELAYS
+
+
+def is_selectable(relay_id: int) -> bool:
+    """True if a relay may be sent via SELECT (A-side, B-side; not a gate)."""
+    return is_group_a(relay_id) or is_group_b(relay_id)
 
 
 # ── group queries ──────────────────────────────────────────────────────────
@@ -68,21 +92,18 @@ def relay_group_label(relay_id: int) -> str:
 
 # ── message builders ───────────────────────────────────────────────────────
 
-def build_set_relays(relay_ids: List[int]) -> str:
-    ids_str = ",".join(str(r) for r in sorted(set(int(r) for r in relay_ids)))
-    return f"SET_RELAYS:{ids_str}\r\n"
+def build_select(relay_id: int) -> str:
+    """Select one relay. The firmware applies exclusivity + gates itself."""
+    return f"SELECT {int(relay_id)}\r\n"
 
 
-def build_clear_all() -> str:
-    return "CLEAR_ALL\r\n"
+def build_clear() -> str:
+    """Turn every relay (and gate) OFF."""
+    return "CLEAR\r\n"
 
 
-def build_estop() -> str:
-    return "ESTOP\r\n"
-
-
-def build_ping() -> str:
-    return "PING\r\n"
+def build_status() -> str:
+    return "STATUS\r\n"
 
 
 # ── voltage parser ─────────────────────────────────────────────────────────
