@@ -1,5 +1,5 @@
 {
-  "name": "testing1",
+  "name": "New Transformer",
   "transformer_id": "new_transformer",
   "type": "unknown",
   "rated_power_va": 0,
@@ -19,16 +19,23 @@
     {
       "id": "P1",
       "winding_type": "basic_winding",
-      "start_pin": 1,
-      "end_pin": 2,
+      "start_pin": "EN+",
+      "end_pin": "EN-",
       "voltage": 230,
       "dot_polarity": true,
       "relay_a": null,
       "relay_b": null,
       "meas_channel": -1,
-      "taps": [],
+      "taps": [
+        {
+          "pin": 37,
+          "voltage": 0,
+          "label": "T1",
+          "relay_b": 37
+        }
+      ],
       "coords": {},
-      "wire_color_start": "#78716c",
+      "wire_color_start": "#7c4a1e",
       "wire_color_end": "#2563eb"
     }
   ],
@@ -36,53 +43,86 @@
     {
       "id": "S1",
       "winding_type": "basic_winding",
-      "start_pin": 100,
-      "end_pin": 101,
+      "start_pin": 1,
+      "end_pin": 17,
       "voltage": 8,
       "dot_polarity": true,
       "relay_a": 1,
       "relay_b": 17,
       "meas_channel": -1,
-      "taps": [],
+      "taps": [
+        {
+          "pin": 18,
+          "voltage": 0,
+          "label": "T1",
+          "relay_b": 18
+        }
+      ],
       "coords": {},
       "wire_color_start": "#dc2626",
-      "wire_color_end": "#d97706"
+      "wire_color_end": "#ea580c"
     },
     {
       "id": "S2",
       "winding_type": "basic_winding",
-      "start_pin": 102,
-      "end_pin": 103,
+      "start_pin": 2,
+      "end_pin": 19,
       "voltage": 8,
       "dot_polarity": true,
       "relay_a": 2,
-      "relay_b": 18,
+      "relay_b": 19,
       "meas_channel": -1,
-      "taps": [],
+      "taps": [
+        {
+          "pin": 20,
+          "voltage": 0,
+          "label": "T1",
+          "relay_b": 20
+        }
+      ],
       "coords": {},
-      "wire_color_start": "#475569",
-      "wire_color_end": "#059669"
+      "wire_color_start": "#6b7280",
+      "wire_color_end": "#16a34a"
     },
     {
       "id": "S3",
       "winding_type": "basic_winding",
-      "start_pin": 104,
-      "end_pin": 105,
+      "start_pin": 3,
+      "end_pin": 21,
       "voltage": 12,
       "dot_polarity": true,
       "relay_a": 3,
-      "relay_b": 19,
+      "relay_b": 21,
       "meas_channel": -1,
       "taps": [],
       "coords": {},
-      "wire_color_start": "#18243a",
-      "wire_color_end": "#64748b"
+      "wire_color_start": "#1a1a1a",
+      "wire_color_end": "#2563eb"
     }
   ],
   "tests": [],
   "ratio_rules": [
     {
-      "id": "auto_47a300c3",
+      "id": "auto_bc96d348",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "P1",
+        "node_b": "P1:tap0",
+        "nominal_voltage": 0.0
+      },
+      "tolerance_percent": 5.0,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "P1 own tap: T1  (0.0V)"
+    },
+    {
+      "id": "auto_c7979421",
       "excitation_segment": {
         "node_a": "P1",
         "node_b": "P1:end",
@@ -101,7 +141,26 @@
       "_label": "S1  8V"
     },
     {
-      "id": "auto_baa17c3d",
+      "id": "auto_f3b447e8",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S1",
+        "node_b": "S1:tap0",
+        "nominal_voltage": 0.0
+      },
+      "tolerance_percent": 5.0,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "S1 @ T1  (0.0V)"
+    },
+    {
+      "id": "auto_c1cc46dc",
       "excitation_segment": {
         "node_a": "P1",
         "node_b": "P1:end",
@@ -120,7 +179,26 @@
       "_label": "S2  8V"
     },
     {
-      "id": "auto_86376dd1",
+      "id": "auto_6353979f",
+      "excitation_segment": {
+        "node_a": "P1",
+        "node_b": "P1:end",
+        "nominal_voltage": 230
+      },
+      "measurement_segment": {
+        "node_a": "S2",
+        "node_b": "S2:tap0",
+        "nominal_voltage": 0.0
+      },
+      "tolerance_percent": 5.0,
+      "minimum_absolute_delta": 0.1,
+      "measurement_type": "AC",
+      "critical": true,
+      "enabled": true,
+      "_label": "S2 @ T1  (0.0V)"
+    },
+    {
+      "id": "auto_6f13906d",
       "excitation_segment": {
         "node_a": "P1",
         "node_b": "P1:end",

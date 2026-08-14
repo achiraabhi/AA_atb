@@ -227,9 +227,15 @@ class SequenceManager:
                 f"{nom_out:.0f}V/{nom_in:.0f}V nominal  "
                 f"+-{rule.tolerance_percent}%")
 
-        # Preserve tap index hints for test_engine (from excitation side)
-        _, exc_tap, _  = cls._parse_node_id(exc.node_a)
-        _, meas_tap, _ = cls._parse_node_id(meas.node_a)
+        # Preserve tap-index hints. A segment measures node_a→node_b; the tap is
+        # normally the SECOND node (e.g. meas node_a="S3", node_b="S3:tap0"), so
+        # prefer node_b's tap and fall back to node_a for hand-built rules.
+        def _seg_tap(seg):
+            _, ta, _ = cls._parse_node_id(seg.node_a)
+            _, tb, _ = cls._parse_node_id(seg.node_b)
+            return tb if tb is not None else ta
+        exc_tap  = _seg_tap(exc)
+        meas_tap = _seg_tap(meas)
 
         return ExecutableStep(
             index=idx,

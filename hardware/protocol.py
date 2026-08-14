@@ -16,25 +16,42 @@ Relay MCU (SELECT/CLEAR/STATUS firmware on the Arduino Mega 2560):
 Voltage Meter (continuous output, PC reads only):
   Meter → PC:  18.42\r\n   OR   VOLTAGE:18.42\r\n
 
-Relay board layout (PC view — maps onto the firmware's Group A):
+Relay board layout (PC view):
   RL1  – RL16  : Side-A relays  (connect a node to voltmeter + bus)  ≙ firmware A1
   RL17 – RL32  : Side-B relays  (connect a node to voltmeter − bus)  ≙ firmware A2
   RL33          : Gate relay A   (auto, firmware-controlled)
   RL34          : Gate relay B   (auto, firmware-controlled)
-  RL35, RL36    : firmware Group-B gates (auto; unused by the PC)
-  RL37 – RL40   : firmware Group B outputs (unused by the PC)
+  RL35, RL36    : Group-B gates  (auto, firmware-controlled)
+  RL37 – RL40   : Group B relays — the ENERGIZING winding's TAP nodes.
+
+Group A (RL1-32) vs Group B (RL37-40)
+-------------------------------------
+Group A measures a normal winding: one A1 (+ bus) + one A2 (− bus).
+
+Group B measures a tap of the ENERGIZING winding. Only that winding's main
+wires are external (mains, never switched) — its start is hard-wired to the
+voltmeter + bus — so measuring one of its taps closes ONLY that tap's Group B
+relay (RL37-40); the firmware closes gates RL35/36 with it.
+
+Groups A and B are MUTUALLY EXCLUSIVE — never energize an A relay and a B
+relay at the same time. (Firmware enforces this; RelayController mirrors it.)
 """
 from typing import List, Optional
 
 # ── relay group boundaries ─────────────────────────────────────────────────
-RELAY_COUNT  = 34
+RELAY_COUNT  = 40
 
 RL_A_MIN  = 1
 RL_A_MAX  = 16
 RL_B_MIN  = 17
 RL_B_MAX  = 32
-RL_GATE_A = 33   # auto-closes whenever any A-relay is active
-RL_GATE_B = 34   # auto-closes whenever any B-relay is active
+RL_GATE_A = 33   # auto-closes whenever any A1-relay is active
+RL_GATE_B = 34   # auto-closes whenever any A2-relay is active
+
+# Group B — energizing-winding tap measurement (excitation domain).
+RL_B2_MIN  = 37
+RL_B2_MAX  = 40
+RL_GATE_B2 = (35, 36)   # auto-close whenever any Group-B relay is active
 
 # ── serial defaults ────────────────────────────────────────────────────────
 DEFAULT_BAUD_MCU   = 115200
@@ -44,6 +61,7 @@ DEFAULT_BAUD_METER = 9600
 CMD_SELECT = "SELECT"
 CMD_CLEAR  = "CLEAR"
 CMD_STATUS = "STATUS"
+CMD_PHASE  = "PHASE"    # query the phase-detect spare pin (winding polarity)
 
 # The firmware does not reply "OK"; a command succeeds unless its reply contains
 # this marker. STATUS replies include this header (used for port detection).
@@ -60,22 +78,29 @@ def is_protected_gate(relay_id: int) -> bool:
 
 
 def is_selectable(relay_id: int) -> bool:
-    """True if a relay may be sent via SELECT (A-side, B-side; not a gate)."""
-    return is_group_a(relay_id) or is_group_b(relay_id)
+    """True if a relay may be sent via SELECT (A1, A2 or Group B; not a gate)."""
+    return is_group_a(relay_id) or is_group_b(relay_id) or is_group_b2(relay_id)
 
 
 # ── group queries ──────────────────────────────────────────────────────────
 
 def is_group_a(relay_id: int) -> bool:
+    """A1 — measurement winding START nodes (voltmeter + bus)."""
     return RL_A_MIN <= relay_id <= RL_A_MAX
 
 
 def is_group_b(relay_id: int) -> bool:
+    """A2 — measurement winding END / TAP nodes (voltmeter − bus)."""
     return RL_B_MIN <= relay_id <= RL_B_MAX
 
 
+def is_group_b2(relay_id: int) -> bool:
+    """Group B — ENERGIZING winding TAP nodes (RL37-40, excitation domain)."""
+    return RL_B2_MIN <= relay_id <= RL_B2_MAX
+
+
 def is_gate(relay_id: int) -> bool:
-    return relay_id in (RL_GATE_A, RL_GATE_B)
+    return relay_id in GATE_RELAYS
 
 
 def relay_group_label(relay_id: int) -> str:
@@ -83,10 +108,14 @@ def relay_group_label(relay_id: int) -> str:
         return "A"
     if is_group_b(relay_id):
         return "B"
+    if is_group_b2(relay_id):
+        return "B2"
     if relay_id == RL_GATE_A:
         return "GA"
     if relay_id == RL_GATE_B:
         return "GB"
+    if relay_id in RL_GATE_B2:
+        return "GB2"
     return "?"
 
 
@@ -104,6 +133,36 @@ def build_clear() -> str:
 
 def build_status() -> str:
     return "STATUS\r\n"
+
+
+def build_phase() -> str:
+    """Ask the MCU for the phase-detect pin state (winding polarity check)."""
+    return "PHASE\r\n"
+
+
+def parse_phase(line: str):
+    """
+    Interpret the MCU's phase reply. The phase-detect circuit drives a spare MCU
+    pin like an LED indicator: signal present ⇒ the measured winding is IN-PHASE
+    with the energizing winding; no signal ⇒ OUT-OF-PHASE (a polarity fault).
+
+    Accepts, case-insensitively:
+        "PHASE:1" / "PHASE 1" / "1" / "IN"  / "INPHASE"      → True  (in-phase)
+        "PHASE:0" / "PHASE 0" / "0" / "OUT" / "OUTOFPHASE"   → False (out-of-phase)
+    Returns None if the line carries no recognizable phase token (e.g. an older
+    firmware that doesn't answer PHASE) so the caller can treat it as "unknown".
+    """
+    if not line:
+        return None
+    t = line.strip().upper()
+    # Strip an optional "PHASE" prefix and separators.
+    if t.startswith("PHASE"):
+        t = t[len("PHASE"):].lstrip(" :=").strip()
+    if t in ("1", "IN", "INPHASE", "IN-PHASE", "TRUE", "OK", "PASS"):
+        return True
+    if t in ("0", "OUT", "OUTOFPHASE", "OUT-OF-PHASE", "FALSE", "FAIL"):
+        return False
+    return None
 
 
 # ── voltage parser ─────────────────────────────────────────────────────────

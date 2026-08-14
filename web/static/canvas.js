@@ -19,12 +19,85 @@ const C = {
   tapActive:   '#00e5ff',
   leadIdle:    '#1e2d4a',
   leadActive:  'rgba(0,255,136,0.35)',
-  labelMuted:  '#64748b',
+  labelMuted:  '#ffffff',
   labelActive: '#00ff88',
   labelAccent: '#00e5ff',
-  textWhite:   '#e2e8f0',
+  textWhite:   '#ffffff',
   particleFill:'#00ff88',
 };
+
+// ════════════════════════════════════════════════════════════════════════════
+//  WIRE COLOUR PALETTE — single source of truth (shared by canvas.js, editor.js
+//  and app.js; these are the only files loaded, in this order, sharing globals).
+//  Each colour has a `kind` so the two "special" insulations render truthfully:
+//    solid = one flat colour · yg = green/yellow stripe · clear = transparent ·
+//    white = needs an outline to be visible on light backgrounds.
+// ════════════════════════════════════════════════════════════════════════════
+const WIRE_PALETTE = [
+  { hex: '#1a1a1a', name: 'Black',  kind: 'solid' },
+  { hex: '#7c4a1e', name: 'Brown',  kind: 'solid' },
+  { hex: '#dc2626', name: 'Red',    kind: 'solid' },
+  { hex: '#ea580c', name: 'Orange', kind: 'solid' },
+  { hex: '#eab308', name: 'Yellow', kind: 'solid' },
+  { hex: '#16a34a', name: 'Green',  kind: 'solid' },
+  { hex: '#2563eb', name: 'Blue',   kind: 'solid' },
+  { hex: '#7c3aed', name: 'Violet', kind: 'solid' },
+  { hex: '#6b7280', name: 'Grey',   kind: 'solid' },
+  { hex: '#65a30d', name: 'Y/G',    kind: 'yg' },
+  { hex: '#ffffff', name: 'White',  kind: 'white' },
+  { hex: '#cbd5e1', name: 'Clear',  kind: 'clear' },
+];
+const _WIRE_BY_HEX = Object.fromEntries(WIRE_PALETTE.map(c => [c.hex.toLowerCase(), c]));
+
+function wireColor(hex)     { return hex ? (_WIRE_BY_HEX[String(hex).toLowerCase()] || null) : null; }
+function wireColorName(hex) { const c = wireColor(hex); return c ? c.name : ''; }
+function wireColorKind(hex) { const c = wireColor(hex); return c ? c.kind : 'solid'; }
+
+// How to STROKE a wire on a canvas. base = main line colour; dash = optional
+// overlaid dashed colour (Y/G stripe); outline = optional darker underlay so
+// pale wires stay visible; thin = draw narrower (Clear reads as barely-there).
+function wireStroke(hex) {
+  switch (wireColorKind(hex)) {
+    case 'yg':    return { base: '#16a34a', dash: '#eab308', outline: null,      thin: false };
+    case 'white': return { base: '#ffffff', dash: null,      outline: '#94a3b8', thin: false };
+    case 'clear': return { base: '#e2e8f0', dash: null,      outline: '#94a3b8', thin: true  };
+    default:      return { base: hex,       dash: null,      outline: null,      thin: false };
+  }
+}
+
+// CSS background for a DOM swatch (picker chips, wiring checklist, inspector).
+// Swatches always carry a thin border in CSS, so White/Clear stay visible.
+function wireSwatchBg(hex) {
+  switch (wireColorKind(hex)) {
+    case 'yg':    return 'repeating-linear-gradient(45deg,#16a34a 0 5px,#eab308 5px 10px)';
+    case 'clear': return 'repeating-linear-gradient(45deg,#eef1f5 0 5px,#cfd6e0 5px 10px)';
+    default:      return hex || '#ffffff';
+  }
+}
+
+// Draw a wire segment on a 2D context, honouring its kind. Restores dash state.
+function strokeWire2D(ctx, x1, y1, x2, y2, hex, width) {
+  const s = wireStroke(hex);
+  const w = s.thin ? Math.max(1, width - 1.5) : width;
+  ctx.lineCap = 'round';
+  if (s.outline) {                       // darker underlay for pale wires
+    ctx.setLineDash([]);
+    ctx.strokeStyle = s.outline;
+    ctx.lineWidth = w + 2;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.strokeStyle = s.base;
+  ctx.lineWidth = w;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  if (s.dash) {                          // yellow dashes over green → Y/G stripe
+    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = s.dash;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.lineCap = 'butt';
+}
 
 class TransformerCanvas {
   constructor(canvasEl) {
@@ -236,19 +309,13 @@ class TransformerCanvas {
     // Start lead uses wire_color_start, end lead uses wire_color_end (each
     // falling back to the generic wire_color, then the idle default). When the
     // winding is active the lead glows in its own colour so live feedback stays.
-    const startWire = w.wire_color_start || w.wire_color || C.leadIdle;
-    const endWire   = w.wire_color_end   || w.wire_color || C.leadIdle;
-    ctx.lineWidth = lw;
-    if (isActive) ctx.shadowBlur = 10;
-
-    ctx.strokeStyle = startWire;
-    if (isActive) ctx.shadowColor = startWire;
-    ctx.beginPath(); ctx.moveTo(cx, y1); ctx.lineTo(coreEx, y1); ctx.stroke();
-
-    ctx.strokeStyle = endWire;
-    if (isActive) ctx.shadowColor = endWire;
-    ctx.beginPath(); ctx.moveTo(cx, y2); ctx.lineTo(coreEx, y2); ctx.stroke();
-
+    // Leads drawn in the winding's configured wire colours, honouring each
+    // colour's kind (Y/G stripe, Clear thin/outlined, White outlined).
+    const startWire = w.wire_color_start || w.wire_color || null;
+    const endWire   = w.wire_color_end   || w.wire_color || null;
+    if (isActive) { ctx.shadowBlur = 10; ctx.shadowColor = wireStroke(startWire || C.leadIdle).base; }
+    strokeWire2D(ctx, cx, y1, coreEx, y1, startWire || C.leadIdle, lw);
+    strokeWire2D(ctx, cx, y2, coreEx, y2, endWire   || C.leadIdle, lw);
     ctx.shadowBlur = 0;
 
     // coil
@@ -278,14 +345,18 @@ class TransformerCanvas {
       const nodeX = cx + outDir * NODE_OFF;       // node pulled out from the coil
       const tapActive = tap.relay_b != null && this.relayStates[String(tap.relay_b)];
       const tapWire  = tap.wire_color || null;
-      const tapColor = tapActive ? C.tapActive : (tapWire || C.tapIdle);
-      const leadCol  = tapActive ? 'rgba(0,229,255,0.6)' : (tapWire || 'rgba(120,140,170,0.5)');
+      const tapColor = tapActive ? C.tapActive : (tapWire ? wireStroke(tapWire).base : C.tapIdle);
 
-      // straight connector: tap node → coil (solid)
-      ctx.setLineDash([]);
-      ctx.strokeStyle = leadCol;
-      ctx.lineWidth = tapActive ? 2 : 1.5;
-      ctx.beginPath(); ctx.moveTo(nodeX, tapY); ctx.lineTo(cx, tapY); ctx.stroke();
+      // straight connector: tap node → coil, drawn like a main lead (colour +
+      // kind) but a touch thinner (2.5px vs the leads' 3px) so taps read clearly.
+      if (tapActive) {
+        ctx.setLineDash([]);
+        ctx.strokeStyle = 'rgba(0,229,255,0.6)';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.moveTo(nodeX, tapY); ctx.lineTo(cx, tapY); ctx.stroke();
+      } else {
+        strokeWire2D(ctx, nodeX, tapY, cx, tapY, tapWire || 'rgba(120,140,170,0.5)', 2.5);
+      }
 
       // tap → core connection: dotted coloured line
       ctx.lineWidth = tapActive ? 2 : 1;
@@ -307,12 +378,24 @@ class TransformerCanvas {
         ctx.shadowBlur = 0;
       }
 
-      // tap label — just outside the node
+      // In line with the tap wire, laid out outward from the node:
+      //   ●—— [pin] [label]
+      ctx.textAlign = side === 'left' ? 'right' : 'left';
+
+      // wire number = the tap's relay number (pin == relay) — nearest the node
+      let outX = nodeX + outDir * 8;
+      if (tap.relay_b != null) {
+        ctx.fillStyle = tapActive ? C.tapActive : C.labelMuted;
+        ctx.font = 'bold 10px "JetBrains Mono", monospace';
+        ctx.fillText(`${tap.relay_b}`, outX, tapY + 3);
+        outX += outDir * 24;
+      }
+
+      // tap label — outboard of the wire number
       const tapLabel = tap.label || `${tap.voltage}V`;
       ctx.fillStyle = tapActive ? C.tapActive : C.labelMuted;
       ctx.font = '10px "JetBrains Mono", monospace';
-      ctx.textAlign = side === 'left' ? 'right' : 'left';
-      ctx.fillText(tapLabel, nodeX + outDir * 12, tapY + 3);
+      ctx.fillText(tapLabel, outX, tapY + 3);
     });
 
     // winding label — placed between the coil and the core, inside the two leads
@@ -324,19 +407,26 @@ class TransformerCanvas {
     ctx.font = '11px "JetBrains Mono", monospace';
     ctx.fillText(`${w.voltage}V`, labelX, cy + 10);
 
-    // relay badges
-    ctx.font = '10px "JetBrains Mono", monospace';
+    // Wire numbers = the node relay numbers (pin == relay), derived live. The
+    // energizing winding's mains wires have no relay → "EN+" / "EN-".
+    // Drawn IN LINE with the lead they label; lit while that relay is energized.
+    const isEnergizing = this.config?.auto_matrix?.energize_winding === w.id;
+    const startTxt = isEnergizing ? 'EN+' : (w.relay_a != null ? `${w.relay_a}` : '');
+    const endTxt   = isEnergizing ? 'EN-' : (w.relay_b != null ? `${w.relay_b}` : '');
+    ctx.font = 'bold 11px "JetBrains Mono", monospace';
     ctx.textAlign = side === 'left' ? 'right' : 'left';
-    if (w.relay_a != null) {
-      const rlOn = this.relayStates[String(w.relay_a)];
+    ctx.textBaseline = 'middle';
+    if (startTxt) {
+      const rlOn = w.relay_a != null && this.relayStates[String(w.relay_a)];
       ctx.fillStyle = rlOn ? C.pinActive : C.labelMuted;
-      ctx.fillText(`RL${w.relay_a}`, side === 'left' ? cx - 2 : cx + 2, y1 - 5);
+      ctx.fillText(startTxt, side === 'left' ? cx - 2 : cx + 2, y1);
     }
-    if (w.relay_b != null) {
-      const rlOn = this.relayStates[String(w.relay_b)];
+    if (endTxt) {
+      const rlOn = w.relay_b != null && this.relayStates[String(w.relay_b)];
       ctx.fillStyle = rlOn ? C.pinActive : C.labelMuted;
-      ctx.fillText(`RL${w.relay_b}`, side === 'left' ? cx - 2 : cx + 2, y2 + 13);
+      ctx.fillText(endTxt, side === 'left' ? cx - 2 : cx + 2, y2);
     }
+    ctx.textBaseline = 'alphabetic';
 
     ctx.textAlign = 'left';
   }

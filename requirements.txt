@@ -6,3 +6,10 @@ pydantic>=2.7.0
 python-multipart>=0.0.9
 pyserial>=3.5
 python-dotenv>=1.0.0
+
+# ── persistence ──────────────────────────────────────────────────────────────
+# SQLite (embedded, single-bench) via SQLAlchemy. The schema self-creates on
+# first run — no migration step needed on the Pi. Add Alembic-managed migrations
+# once the schema starts evolving (kept here so it's ready when you are).
+SQLAlchemy>=2.0.0
+alembic>=1.13.0

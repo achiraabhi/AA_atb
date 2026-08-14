@@ -218,6 +218,7 @@ function dispatchWsEvent(msg) {
     case 'session_started':
       state.session     = data;
       state.stepResults = [];
+      _resultExpanded.clear();
       renderSession();
       renderResults();
       break;
@@ -404,15 +405,95 @@ function renderHeaderState() {
 }
 
 function renderTransformerSelect() {
-  const sel = el('tf-select');
-  sel.innerHTML = '<option value="">— Select —</option>';
-  for (const t of state.transformerList) {
-    const opt = document.createElement('option');
-    opt.value       = t.id;
-    opt.textContent = t.name;
-    if (t.id === state.selectedTransformerId) opt.selected = true;
-    sel.appendChild(opt);
+  const label = el('tf-select-label');
+  const sel = state.transformerList.find(t => t.id === state.selectedTransformerId);
+  if (sel) {
+    label.textContent = sel.name;
+    label.classList.remove('muted');
+  } else {
+    label.textContent = '— Select —';
+    label.classList.add('muted');
   }
+}
+
+// ── searchable transformer picker (shared: dashboard select + editor Load) ─────
+let _tfPickerCallback = null;
+
+function openTransformerPicker(callback, title) {
+  _tfPickerCallback = callback;
+  el('tf-picker-title').textContent = title || 'Select Transformer';
+  el('tf-picker-search').value = '';
+  renderTfPickerList('');
+  el('tf-picker-backdrop').classList.remove('hidden');
+  el('tf-picker-modal').classList.remove('hidden');
+  setTimeout(() => el('tf-picker-search').focus(), 30);
+}
+
+function closeTransformerPicker() {
+  _tfPickerCallback = null;
+  el('tf-picker-backdrop').classList.add('hidden');
+  el('tf-picker-modal').classList.add('hidden');
+}
+
+function renderTfPickerList(query) {
+  const list = el('tf-picker-list');
+  const q = (query || '').trim().toLowerCase();
+  list.innerHTML = '';
+  const items = state.transformerList.filter(t =>
+    !q || t.name.toLowerCase().includes(q) || t.id.toLowerCase().includes(q));
+  if (!items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'tf-picker-empty';
+    empty.textContent = 'No matching transformers';
+    list.appendChild(empty);
+    return;
+  }
+  for (const t of items) {
+    const item = document.createElement('div');
+    item.className = 'tf-picker-item' + (t.id === state.selectedTransformerId ? ' active' : '');
+    const name = document.createElement('span');
+    name.className = 'tf-picker-name';
+    name.textContent = t.name;
+    const id = document.createElement('span');
+    id.className = 'tf-picker-id';
+    id.textContent = t.id;
+    item.appendChild(name);
+    item.appendChild(id);
+    item.addEventListener('click', () => {
+      const cb = _tfPickerCallback;
+      closeTransformerPicker();
+      cb?.(t.id);
+    });
+    list.appendChild(item);
+  }
+}
+
+function bindTransformerPicker() {
+  el('tf-picker-search').addEventListener('input', (e) => renderTfPickerList(e.target.value));
+  el('tf-picker-close').addEventListener('click', closeTransformerPicker);
+  el('tf-picker-backdrop').addEventListener('click', closeTransformerPicker);
+  el('tf-picker-search').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { closeTransformerPicker(); return; }
+    if (e.key === 'Enter') {
+      const first = el('tf-picker-list').querySelector('.tf-picker-item');
+      if (first) first.click();
+    }
+  });
+}
+
+async function selectTransformer(id) {
+  state.selectedTransformerId = id || null;
+  renderTransformerSelect();
+  if (id) {
+    sendWS('select_transformer', { transformer_id: id });
+    await loadConfig(id);
+  } else {
+    tfCanvas.setConfig(null);
+    el('canvas-placeholder').classList.remove('hidden');
+  }
+  renderCanvas();
+  // New transformer → any expanded step details collapse.
+  _resultExpanded.clear();
 }
 
 function renderOperatorInput() {
@@ -606,23 +687,28 @@ function renderRelayGrid() {
   const isOn = id => Boolean(relayStates[String(id)]);
   const active = [];
 
-  const paint = (rowId, from, to, cls) => {
+  const paint = (rowId, from, to, cls, clickable) => {
     const row = el(rowId);
     if (!row) return;
-    if (row.children.length === 0) buildRelayRow(row, from, to);
+    if (row.children.length === 0) buildRelayRow(row, from, to, clickable);
     for (let id = from; id <= to; id++) {
       const btn = row.querySelector(`[data-rl="${id}"]`);
       if (!btn) continue;
       const on = isOn(id);
       if (on) active.push(id);
-      btn.className = 'relay-btn' + (on ? ' ' + cls : '');
+      const classes = ['relay-btn'];
+      if (on) classes.push(cls);
+      if (clickable) classes.push('clickable');
+      if (_ff.active && _ff.order[_ff.index] === id) classes.push('ff-testing');
+      if (_ff.results[id] === 'faulty') classes.push('ff-faulty');
+      btn.className = classes.join(' ');
     }
   };
 
-  paint('relays-a',    1, 16, 'on-a');     // A1 — start nodes
-  paint('relays-b',   17, 32, 'on-b');     // A2 — end / tap nodes
-  paint('relays-b2',  37, 40, 'on-b');     // B  — energize tap
-  paint('relays-gate', 33, 36, 'on-gate'); // gates (A: 33/34, B: 35/36)
+  paint('relays-a',    1, 16, 'on-a',    true);   // A1 — start nodes (toggleable)
+  paint('relays-b',   17, 32, 'on-b',    true);   // A2 — end / tap nodes (toggleable)
+  paint('relays-b2',  37, 40, 'on-b2',   true);   // B  — energizing winding taps (toggleable)
+  paint('relays-gate', 33, 36, 'on-gate', false); // gates (firmware-controlled)
 
   el('relay-count').textContent = `${active.length} active`;
   el('relay-count').style.color = active.length > 0 ? 'var(--glow)' : 'var(--muted)';
@@ -642,15 +728,158 @@ function renderRelayGrid() {
   if (dot) dot.className = 'vbar-dot' + (active.length ? ' relays-on' : ' off');
 }
 
-function buildRelayRow(container, from, to) {
+function buildRelayRow(container, from, to, clickable) {
   container.innerHTML = '';
   for (let id = from; id <= to; id++) {
     const btn = document.createElement('div');
-    btn.className   = 'relay-btn';
+    btn.className   = 'relay-btn' + (clickable ? ' clickable' : '');
     btn.dataset.rl  = id;
     btn.textContent = id;
+    if (clickable) {
+      btn.title = `Toggle relay ${id}`;
+      btn.addEventListener('click', () => onRelayClick(id));
+    }
     container.appendChild(btn);
   }
+}
+
+// ── manual relay control (dev panel) ──────────────────────────────────────────
+function onRelayClick(id) {
+  if (_ff.active) return;   // fault finder drives the relays itself
+  toggleRelayManual(id);
+}
+
+function applyRelayStates(relays) {
+  if (relays) state.relayStates = relays;
+  renderRelayGrid();
+}
+
+function _relayError(e) {
+  const msg = String(e).includes(': 409')
+    ? 'Blocked — stop the active test/sequence first'
+    : 'Relay command failed';
+  const rc = el('relay-count');
+  const prev = rc.textContent, prevColor = rc.style.color;
+  rc.textContent = msg;
+  rc.style.color = 'var(--danger)';
+  setTimeout(() => { rc.textContent = prev; rc.style.color = prevColor; }, 2500);
+}
+
+async function toggleRelayManual(id) {
+  const on = Boolean(state.relayStates[String(id)]);
+  try {
+    const r = await apiPost('/relays/set', { relay_id: id, state: !on });
+    applyRelayStates(r.relays);
+  } catch (e) { _relayError(e); }
+}
+
+async function clearAllRelaysManual() {
+  try {
+    const r = await apiPost('/relays/clear', {});
+    applyRelayStates(r.relays);
+  } catch (e) { _relayError(e); }
+}
+
+// ── fault finder ──────────────────────────────────────────────────────────────
+// Step through every selectable relay (RL1–32) one at a time; the operator marks
+// each OK or Faulty (a stuck/dead relay can't be sensed in firmware, so this is
+// operator-confirmed). Produces a list of faulty relays at the end.
+const _ff = { active: false, order: [], index: 0, results: {} };
+
+function _ffGroup(id) {
+  if (id <= 16) return 'A1 · start';
+  if (id <= 32) return 'A2 · end/tap';
+  return 'B · energizing tap';
+}
+
+async function faultFinderStart() {
+  if (_relaySeqRunning) { alert('Stop the Diagnostic sequence before running the Fault Finder.'); return; }
+  _ff.active = true;
+  _ff.index = 0;
+  _ff.results = {};
+  _ff.order = [];
+  // Every selectable relay: A1 (1–16), A2 (17–32) and Group B (37–40).
+  for (let id = 1; id <= 32; id++) _ff.order.push(id);
+  for (let id = 37; id <= 40; id++) _ff.order.push(id);
+  setVisible('fault-finder-panel', true);
+  setVisible('ff-summary', false);
+  el('btn-fault-finder').disabled = true;
+  await _ffEnergizeCurrent();
+}
+
+async function _ffEnergizeCurrent() {
+  const id = _ff.order[_ff.index];
+  el('ff-progress').textContent = `${_ff.index + 1} / ${_ff.order.length}`;
+  el('ff-current-relay').textContent = `${id}`;
+  el('ff-current-group').textContent = _ffGroup(id);
+  _ffRenderResults();
+  try {
+    const r = await apiPost('/relays/set', { relay_id: id, state: true, exclusive: true });
+    applyRelayStates(r.relays);
+  } catch (e) { _relayError(e); }
+}
+
+function _ffMark(verdict) {
+  if (!_ff.active) return;
+  _ff.results[_ff.order[_ff.index]] = verdict;
+  _ff.index++;
+  if (_ff.index >= _ff.order.length) return _ffFinish();
+  _ffEnergizeCurrent();
+}
+
+function _ffRenderResults() {
+  const box = el('ff-results');
+  box.innerHTML = '';
+  for (const id of _ff.order) {
+    const v = _ff.results[id];
+    if (!v) continue;
+    const chip = document.createElement('span');
+    chip.className = 'ff-chip ' + v;
+    chip.textContent = `${id}`;
+    box.appendChild(chip);
+  }
+}
+
+async function _ffFinish() {
+  const faulty = _ff.order.filter(id => _ff.results[id] === 'faulty');
+  const skipped = _ff.order.filter(id => _ff.results[id] === 'skip');
+  const summary = el('ff-summary');
+  summary.classList.remove('hidden', 'has-faults', 'all-ok');
+  if (faulty.length) {
+    summary.classList.add('has-faults');
+    summary.textContent = `⚠ ${faulty.length} faulty: ` + faulty.map(id => `${id}`).join(', ')
+      + (skipped.length ? `  ·  ${skipped.length} skipped` : '');
+  } else {
+    summary.classList.add('all-ok');
+    summary.textContent = `✓ All ${_ff.order.length - skipped.length} tested relays OK`
+      + (skipped.length ? `  ·  ${skipped.length} skipped` : '');
+  }
+  _ffRenderResults();
+  await _ffStopHardware();
+  _ff.active = false;
+  el('btn-fault-finder').disabled = false;
+  renderRelayGrid();
+}
+
+async function _ffStopHardware() {
+  try {
+    const r = await apiPost('/relays/clear', {});
+    applyRelayStates(r.relays);
+  } catch (e) { /* ignore */ }
+}
+
+async function faultFinderStop() {
+  if (!_ff.active) return;
+  await _ffFinish();
+}
+
+function bindRelayManual() {
+  el('btn-relay-clear').addEventListener('click', clearAllRelaysManual);
+  el('btn-fault-finder').addEventListener('click', faultFinderStart);
+  el('ff-ok').addEventListener('click',     () => _ffMark('ok'));
+  el('ff-faulty').addEventListener('click', () => _ffMark('faulty'));
+  el('ff-skip').addEventListener('click',   () => _ffMark('skip'));
+  el('ff-stop').addEventListener('click',   faultFinderStop);
 }
 
 // Append relay MCU ⇄ PC serial traffic to the console panel.
@@ -779,26 +1008,74 @@ function renderSession() {
   }
 }
 
+// Step indices (step_index) whose detail the operator has tapped open.
+const _resultExpanded = new Set();
+
 function renderResults() {
-  const tbody = el('results-tbody');
-  tbody.innerHTML = '';
-  const results = [...state.stepResults].reverse();
-  for (const r of results) {
-    const tr = document.createElement('tr');
-    const passed = r.passed;
-    tr.innerHTML = `
-      <td class="muted">${r.step_index + 1}</td>
-      <td>${esc(r.from_winding)}<span class="muted"> → </span>${esc(r.to_winding)}</td>
-      <td style="text-align:right;color:${passed ? 'var(--glow)' : 'var(--danger)'}">${r.error ? 'No Signal' : r.measured_voltage.toFixed(3) + 'V'}</td>
-      <td style="text-align:right;color:var(--muted)">${r.expected_voltage.toFixed(3)}V</td>
-      <td style="text-align:center"><span class="pass-badge ${passed ? 'pass' : 'fail'}">${passed ? 'PASS' : 'FAIL'}</span></td>
-    `;
-    tbody.appendChild(tr);
+  const list = el('results-list');
+  if (!list) return;
+  list.innerHTML = '';
+  const results = [...state.stepResults].reverse();   // newest first
+  if (results.length === 0) {
+    list.innerHTML = '<div class="results-empty">Steps appear here as the test runs. Tap a step to see its measurement.</div>';
+    el('results-summary').textContent = '';
+    return;
   }
+
+  for (const r of results) {
+    const passed = r.passed;
+    const open   = _resultExpanded.has(r.step_index);
+
+    // The exactly-two measured leads: colour block + its lead number.
+    const swatches = _stepLeads(r).map(L => {
+      const bg = L.hex ? wireSwatchBg(L.hex) : 'transparent';
+      const nm = L.hex ? (wireColorName(L.hex) || '') : 'no colour';
+      return `<span class="res-lead" title="${esc(nm)}">` +
+               `<span class="swatch res-swatch" style="background:${bg}"></span>` +
+               `<span class="res-leadnum">${esc(L.num)}</span>` +
+             `</span>`;
+    }).join('');
+
+    // Phase badge for the detail row.
+    let phase = '<span class="phase-badge na">—</span>';
+    if (r.phase_ok === true)  phase = '<span class="phase-badge in">IN-PHASE</span>';
+    if (r.phase_ok === false) phase = '<span class="phase-badge out">OUT-OF-PHASE</span>';
+
+    const noSignal = r.error && r.phase_ok !== false;
+    const measTxt  = noSignal ? 'No Signal' : `${r.measured_voltage.toFixed(3)} V`;
+    const dev = (r.expected_voltage && !noSignal)
+      ? (Math.abs(r.measured_voltage - r.expected_voltage) / r.expected_voltage * 100).toFixed(2) + ' %'
+      : '—';
+
+    const item = document.createElement('div');
+    item.className = 'res-item ' + (passed ? 'pass' : 'fail') + (open ? ' open' : '');
+    item.innerHTML =
+      `<button class="res-row" type="button">` +
+        `<span class="res-num">${r.step_index + 1}</span>` +
+        `<span class="res-path">${esc(_stepLabel(r))}</span>` +
+        `<span class="res-colors">${swatches}</span>` +
+        `<span class="pass-badge ${passed ? 'pass' : 'fail'}">${passed ? 'PASS' : 'FAIL'}</span>` +
+        `<span class="res-caret">${open ? '▾' : '▸'}</span>` +
+      `</button>` +
+      `<div class="res-detail">` +
+        `<div class="res-metric"><span>Measured</span><b class="${passed ? 'glow' : 'danger'}">${measTxt}</b></div>` +
+        `<div class="res-metric"><span>Expected</span><b class="accent">${r.expected_voltage.toFixed(3)} V</b></div>` +
+        `<div class="res-metric"><span>Deviation</span><b>${dev}</b></div>` +
+        `<div class="res-metric"><span>Tolerance</span><b class="muted">±${Number(r.tolerance_pct ?? 5).toFixed(1)} %</b></div>` +
+        `<div class="res-metric"><span>Phase</span>${phase}</div>` +
+        (r.error ? `<div class="res-error">${esc(r.error)}</div>` : '') +
+      `</div>`;
+
+    item.querySelector('.res-row').addEventListener('click', () => {
+      if (_resultExpanded.has(r.step_index)) _resultExpanded.delete(r.step_index);
+      else _resultExpanded.add(r.step_index);
+      renderResults();
+    });
+    list.appendChild(item);
+  }
+
   const passCount = state.stepResults.filter(r => r.passed).length;
-  el('results-summary').textContent = results.length > 0
-    ? `${passCount}/${results.length} PASS`
-    : '';
+  el('results-summary').textContent = `${passCount}/${state.stepResults.length} PASS`;
 }
 
 function renderCanvas() {
@@ -910,17 +1187,9 @@ function initCanvas() {
 // ── control panel events ──────────────────────────────────────────────────────
 
 function bindControlPanel() {
-  el('tf-select').addEventListener('change', async (e) => {
-    const id = e.target.value;
-    state.selectedTransformerId = id || null;
-    if (id) {
-      sendWS('select_transformer', { transformer_id: id });
-      await loadConfig(id);
-    } else {
-      tfCanvas.setConfig(null);
-      el('canvas-placeholder').classList.remove('hidden');
-    }
-    renderCanvas();
+  el('tf-select').addEventListener('click', () => {
+    if (el('tf-select').disabled) return;
+    openTransformerPicker(selectTransformer, 'Select Transformer');
   });
 
   el('op-input').addEventListener('input', (e) => {
@@ -939,6 +1208,11 @@ function bindControlPanel() {
 
   el('excitation-winding').addEventListener('change', _updateRatioPreview);
   el('applied-voltage').addEventListener('input',  _updateRatioPreview);
+
+  // Collapse / expand the excitation setup body
+  el('excitation-toggle').addEventListener('change', (e) => {
+    setVisible('excitation-body', e.target.checked);
+  });
 
   el('btn-start').addEventListener('click', async () => {
     if (!state.selectedTransformerId) {
@@ -987,7 +1261,7 @@ function bindControlPanel() {
 
   el('btn-next-unit').addEventListener('click', async () => {
     hideUnitResult();
-    state.stepResults = [];
+    state.stepResults = []; _resultExpanded.clear();
     renderResults();
     state.currentVoltage   = null;
     state.expectedVoltage  = null;
@@ -1004,7 +1278,7 @@ function bindControlPanel() {
 
   el('btn-retry-unit').addEventListener('click', async () => {
     hideUnitResult();
-    state.stepResults = [];
+    state.stepResults = []; _resultExpanded.clear();
     renderResults();
     state.currentVoltage   = null;
     state.expectedVoltage  = null;
@@ -1030,7 +1304,7 @@ function bindControlPanel() {
 
   el('uro-btn-next').addEventListener('click', async () => {
     hideUnitResult();
-    state.stepResults = [];
+    state.stepResults = []; _resultExpanded.clear();
     renderResults();
     state.currentVoltage   = null;
     state.expectedVoltage  = null;
@@ -1047,7 +1321,7 @@ function bindControlPanel() {
 
   el('uro-btn-retry').addEventListener('click', async () => {
     hideUnitResult();
-    state.stepResults = [];
+    state.stepResults = []; _resultExpanded.clear();
     renderResults();
     state.currentVoltage   = null;
     state.expectedVoltage  = null;
@@ -1097,6 +1371,52 @@ function bindTabs() {
       }, 30);
     });
   });
+}
+
+// ── step-result leads (colour + lead number) ────────────────────────────────
+// The exactly-two leads a step was tested against, on the MEASURED winding (the
+// energizing winding is the reference and is not shown). Each lead is
+// { hex, num } — its wire colour and its lead (relay) number.
+//   • full winding  → start lead + end lead
+//   • a tap         → start lead + the tap's lead
+function _findWinding(cfg, id) {
+  for (const side of ['primary', 'secondary'])
+    for (const w of (cfg[side] || [])) if (w.id === id) return w;
+  return null;
+}
+
+function _stepLeads(r) {
+  const cfg = state.loadedConfig;
+  if (!cfg) return [];
+  const w = _findWinding(cfg, r.to_winding);
+  if (!w) return [];
+  const isEw = cfg.auto_matrix?.energize_winding === w.id;
+  const startNum = isEw ? 'EN+' : (w.relay_a != null ? String(w.relay_a) : '—');
+  const startHex = w.wire_color_start || w.wire_color || null;
+
+  if (r.to_tap_index != null && w.taps && w.taps[r.to_tap_index]) {
+    const t = w.taps[r.to_tap_index];
+    return [
+      { hex: startHex, num: startNum },
+      { hex: t.wire_color || null, num: t.relay_b != null ? String(t.relay_b) : '—' },
+    ];
+  }
+  const endNum = isEw ? 'EN−' : (w.relay_b != null ? String(w.relay_b) : '—');
+  const endHex = w.wire_color_end || w.wire_color || null;
+  return [
+    { hex: startHex, num: startNum },
+    { hex: endHex,   num: endNum },
+  ];
+}
+
+// The measured node's label: "S3" for a full winding, "S3 (T1)" for a tap
+// (using the tap's own label when set, else T<n>).
+function _stepLabel(r) {
+  if (r.to_tap_index == null) return r.to_winding;
+  const w = state.loadedConfig && _findWinding(state.loadedConfig, r.to_winding);
+  const t = w && w.taps && w.taps[r.to_tap_index];
+  const lbl = (t && t.label) ? t.label : `T${r.to_tap_index + 1}`;
+  return `${r.to_winding} (${lbl})`;
 }
 
 // ── logs tab ──────────────────────────────────────────────────────────────────
@@ -1382,8 +1702,6 @@ function _showInspector(sel) {
     const w = sel.data;
     el('insp-wid').value       = w.id;
     el('insp-voltage').value   = w.voltage;
-    el('insp-start-pin').value = w.start_pin;
-    el('insp-end-pin').value   = w.end_pin;
     const ra = el('insp-relay-a'), rb = el('insp-relay-b');
     el('insp-energize-note').classList.toggle('hidden', !isEnergizing);
     ra.disabled = rb.disabled = isEnergizing;
@@ -1391,30 +1709,31 @@ function _showInspector(sel) {
       ra.textContent = rb.textContent = '— permanent —';
       ra.className = rb.className = 'relay-assign-btn';
     } else {
-      ra.textContent = w.relay_a != null ? `RL${w.relay_a}` : 'None';
+      ra.textContent = w.relay_a != null ? `${w.relay_a}` : 'None';
       ra.className   = 'relay-assign-btn' + (w.relay_a != null ? ' assigned-a' : '');
-      rb.textContent = w.relay_b != null ? `RL${w.relay_b}` : 'None';
+      rb.textContent = w.relay_b != null ? `${w.relay_b}` : 'None';
       rb.className   = 'relay-assign-btn' + (w.relay_b != null ? ' assigned-b' : '');
     }
-    el('insp-wire-color-start').value = w.wire_color_start || w.wire_color || '#1a3d6e';
-    el('insp-wire-color-end').value   = w.wire_color_end   || w.wire_color || '#1a3d6e';
+    setColorBtn('insp-wire-color-start', w.wire_color_start || w.wire_color || null);
+    setColorBtn('insp-wire-color-end',   w.wire_color_end   || w.wire_color || null);
   } else if (sel.type === 'tap') {
     el('inspector-tap').classList.remove('hidden');
     const t = sel.data;
     el('insp-tap-label').value   = t.label || '';
-    el('insp-tap-pin').value     = t.pin;
     el('insp-tap-voltage').value = t.voltage;
     const trb = el('insp-tap-relay-b');
+    // Taps of the energizing winding ARE measured — but through Group B
+    // (RL37–40), not the A2 group. Only its main wires are external.
     el('insp-tap-energize-note').classList.toggle('hidden', !isEnergizing);
-    trb.disabled = isEnergizing;
-    if (isEnergizing) {
-      trb.textContent = '— external —';
-      trb.className   = 'relay-assign-btn';
-    } else {
-      trb.textContent = t.relay_b != null ? `RL${t.relay_b}` : 'None';
-      trb.className   = 'relay-assign-btn' + (t.relay_b != null ? ' assigned-b' : '');
+    const grpLbl = el('insp-tap-relay-group');
+    if (grpLbl) {
+      grpLbl.textContent = isEnergizing ? 'Group B (RL37–40)' : 'A2 (RL17–32)';
+      grpLbl.className   = isEnergizing ? 'col-b2' : 'col-b';
     }
-    el('insp-tap-wire-color').value    = t.wire_color || '#1a3d6e';
+    trb.disabled = false;
+    trb.textContent = t.relay_b != null ? `${t.relay_b}` : 'None';
+    trb.className   = 'relay-assign-btn' + (t.relay_b != null ? ' assigned-b' : '');
+    setColorBtn('insp-tap-wire-color', t.wire_color || null);
   }
 }
 
@@ -1455,24 +1774,25 @@ function _updateRulesList() {
   const rules = editorConfig?.ratio_rules || [];
   const selId = topoEditor?._ruleSel?.ruleId;
   const items = el('rules-list-items');
+  const countEl = el('rules-count');
   if (!items) return;
+  if (countEl) countEl.textContent = String(rules.length);
   items.innerHTML = '';
   if (rules.length === 0) {
-    items.innerHTML = '<div style="padding:6px 2px;font-family:var(--font-mono);font-size:10px;color:var(--muted)">No rules yet — select a winding and click Generate Rules, or add manually</div>';
+    items.innerHTML = '<div class="rules-empty">No rules yet — select a winding and click <b>Generate Rules</b>, or add one manually.</div>';
     return;
   }
   for (const rule of rules) {
     const item = document.createElement('div');
-    item.className = 'rule-list-item' + (rule.id === selId ? ' active' : '');
+    item.className = 'rule-list-item' + (rule.id === selId ? ' active' : '')
+                   + (rule.enabled ? '' : ' disabled');
     const meas    = rule.measurement_segment || {};
-    const exc     = rule.excitation_segment  || {};
     const nomOut  = meas.nominal_voltage || 0;
-    const nomIn   = exc.nominal_voltage  || 0;
     const measLabel = meas.node_a && meas.node_b ? `${meas.node_a}↔${meas.node_b}` : (meas.node_a || '?');
-    const ratioStr  = nomIn > 0 && nomOut > 0 ? `${nomOut}/${nomIn}V` : (nomOut > 0 ? `${nomOut}V` : '');
+    const voltStr  = nomOut > 0 ? `${nomOut}V` : '';
     item.innerHTML =
-      `<span class="rule-item-meas">${esc(measLabel)}</span>` +
-      (ratioStr ? `<span class="rule-item-voltage">${esc(ratioStr)}</span>` : '') +
+      `<span class="rule-item-path">${esc(measLabel)}</span>` +
+      (voltStr ? `<span class="rule-item-voltage">${esc(voltStr)}</span>` : '') +
       (!rule.enabled ? `<span class="rule-item-dis">off</span>` : '');
     item.addEventListener('click', () => topoEditor?._selectRule(rule.id));
     items.appendChild(item);
@@ -1573,11 +1893,12 @@ function bindRuleInspectorEvents() {
 }
 
 function bindInspectorEvents() {
+  // start_pin / end_pin are NOT editable — they are the wire numbers, assigned
+  // automatically alongside the relays by Generate Rules (pins 1 & 2 are always
+  // the energizing winding's mains wires; every pin from 3 up maps 1:1 onto a relay).
   const windingFields = [
     { id: 'insp-wid',       field: 'id',        parse: v => v },
     { id: 'insp-voltage',   field: 'voltage',   parse: Number },
-    { id: 'insp-start-pin', field: 'start_pin', parse: Number },
-    { id: 'insp-end-pin',   field: 'end_pin',   parse: Number },
   ];
   windingFields.forEach(({ id, field, parse }) => {
     el(id).addEventListener('input', (e) => {
@@ -1586,9 +1907,9 @@ function bindInspectorEvents() {
     });
   });
 
+  // tap.pin is the wire number — auto-assigned, not typed (see above).
   const tapFields = [
     { id: 'insp-tap-label',   field: 'label',   parse: v => v },
-    { id: 'insp-tap-pin',     field: 'pin',     parse: Number },
     { id: 'insp-tap-voltage', field: 'voltage', parse: Number },
   ];
   tapFields.forEach(({ id, field, parse }) => {
@@ -1603,8 +1924,9 @@ function bindInspectorEvents() {
     if (!sel || sel.type !== 'winding') return;
     const cur = topoEditor.config[sel.side][sel.wIndex].relay_a;
     showRelayPicker('A', cur, (val) => {
-      topoEditor.updateSelected({ relay_a: val });
-      el('insp-relay-a').textContent = val != null ? `RL${val}` : 'None';
+      // pin == relay: keep the stored wire number in sync with the assignment.
+      topoEditor.updateSelected({ relay_a: val, start_pin: val });
+      el('insp-relay-a').textContent = val != null ? `${val}` : 'None';
       el('insp-relay-a').className = 'relay-assign-btn' + (val != null ? ' assigned-a' : '');
     }, e.currentTarget);
   });
@@ -1613,8 +1935,8 @@ function bindInspectorEvents() {
     if (!sel || sel.type !== 'winding') return;
     const cur = topoEditor.config[sel.side][sel.wIndex].relay_b;
     showRelayPicker('B', cur, (val) => {
-      topoEditor.updateSelected({ relay_b: val });
-      el('insp-relay-b').textContent = val != null ? `RL${val}` : 'None';
+      topoEditor.updateSelected({ relay_b: val, end_pin: val });
+      el('insp-relay-b').textContent = val != null ? `${val}` : 'None';
       el('insp-relay-b').className = 'relay-assign-btn' + (val != null ? ' assigned-b' : '');
     }, e.currentTarget);
   });
@@ -1623,22 +1945,33 @@ function bindInspectorEvents() {
     const sel = topoEditor?._sel;
     if (!sel || sel.type !== 'tap') return;
     const cur = topoEditor.config[sel.side][sel.wIndex].taps[sel.tIndex].relay_b;
-    showRelayPicker('B', cur, (val) => {
-      topoEditor.updateSelected({ relay_b: val });
-      el('insp-tap-relay-b').textContent = val != null ? `RL${val}` : 'None';
+    // The energizing winding's taps are measured through Group B (RL37–40),
+    // every other winding's taps through A2 (RL17–32).
+    const ewId = topoEditor?.config?.auto_matrix?.energize_winding || null;
+    const isEwTap = ewId != null &&
+      topoEditor.config[sel.side][sel.wIndex].id === ewId;
+    showRelayPicker(isEwTap ? 'B2' : 'B', cur, (val) => {
+      topoEditor.updateSelected({ relay_b: val, pin: val });   // pin == relay
+      el('insp-tap-relay-b').textContent = val != null ? `${val}` : 'None';
       el('insp-tap-relay-b').className = 'relay-assign-btn' + (val != null ? ' assigned-b' : '');
     }, e.currentTarget);
   });
 
-  el('insp-wire-color-start').addEventListener('input', (e) => {
-    topoEditor?.setLeadColor('wire_color_start', e.target.value);
-  });
-  el('insp-wire-color-end').addEventListener('input', (e) => {
-    topoEditor?.setLeadColor('wire_color_end', e.target.value);
-  });
-  el('insp-tap-wire-color').addEventListener('input', (e) => {
-    topoEditor?.setLeadColor('wire_color', e.target.value);
-  });
+  // Wire-colour buttons open the swatch picker; on pick, set the lead colour and
+  // refresh the button. Colour kind (Y/G stripe, White/Clear) is rendered by the
+  // shared palette helpers (canvas.js).
+  const bindColorBtn = (id, field) => {
+    el(id).addEventListener('click', (e) => {
+      const cur = el(id).dataset.hex || null;
+      showColorPicker(cur, (hex) => {
+        topoEditor?.setLeadColor(field, hex);
+        setColorBtn(id, hex);
+      }, e.currentTarget);
+    });
+  };
+  bindColorBtn('insp-wire-color-start', 'wire_color_start');
+  bindColorBtn('insp-wire-color-end',   'wire_color_end');
+  bindColorBtn('insp-tap-wire-color',   'wire_color');
 
   el('insp-add-tap').addEventListener('click', () => { topoEditor?.addTapToSelected(); });
   el('insp-delete-winding').addEventListener('click', () => { topoEditor?.deleteSelected(); });
@@ -1729,7 +2062,7 @@ function bindEditorEvents() {
     relayManager.buildFromConfig(editorConfig);
     if (relayManager.hasConflicts()) {
       const lines = relayManager.getConflicts()
-        .map(c => `RL${c.relay}: assigned to both "${c.nodeA}" and "${c.nodeB}"`)
+        .map(c => `Relay ${c.relay}: assigned to both "${c.nodeA}" and "${c.nodeB}"`)
         .join('\n');
       el('editor-error').textContent = 'Cannot save — duplicate relay assignments:\n' + lines;
       el('editor-error').classList.remove('hidden');
@@ -1753,20 +2086,8 @@ function bindEditorEvents() {
     }
   });
 
-  el('editor-load-btn').addEventListener('click', async () => {
-    const id = state.selectedTransformerId;
-    if (!id) { alert('Select a transformer on the Dashboard first.'); return; }
-    try {
-      const cfg = await apiGet(`/transformers/${encodeURIComponent(id)}`);
-      if (!cfg.ratio_rules) cfg.ratio_rules = cfg.validation_rules || [];
-      editorConfig = cfg;
-      topoEditor?.setConfig(cfg);
-      _syncMetaToForm(cfg);
-      el('editor-error').classList.add('hidden');
-      if (_editorMode === 'validate') _updateRulesList();
-    } catch (e) {
-      alert('Could not load transformer: ' + e);
-    }
+  el('editor-load-btn').addEventListener('click', () => {
+    openTransformerPicker(loadTransformerIntoEditor, 'Load Transformer into Editor');
   });
 
   // Escape cancels an active node-pick
@@ -1775,6 +2096,21 @@ function bindEditorEvents() {
       topoEditor.cancelNodePick();
     }
   });
+}
+
+async function loadTransformerIntoEditor(id) {
+  if (!id) return;
+  try {
+    const cfg = await apiGet(`/transformers/${encodeURIComponent(id)}`);
+    if (!cfg.ratio_rules) cfg.ratio_rules = cfg.validation_rules || [];
+    editorConfig = cfg;
+    topoEditor?.setConfig(cfg);
+    _syncMetaToForm(cfg);
+    el('editor-error').classList.add('hidden');
+    if (_editorMode === 'validate') _updateRulesList();
+  } catch (e) {
+    alert('Could not load transformer: ' + e);
+  }
 }
 
 function _syncMetaFromForm() {
@@ -1815,9 +2151,17 @@ function showRelayPicker(group, currentVal, callback, anchorEl) {
   const backdrop = el('rp-backdrop');
   const btnsEl   = el('rp-buttons');
 
-  const range = group === 'A' ? [1, 16] : [17, 32];
-  const name  = group === 'A' ? 'A1 · Start node' : 'A2 · End / Tap node';
-  el('rp-title').textContent = `${name}  (RL${range[0]}–RL${range[1]})`;
+  // Group B (RL37–40) is the energizing winding's TAP group — a different pool
+  // from the A2 relays (RL17–32) used by normal windings' end/tap nodes.
+  const RANGES = { A: [1, 16], B: [17, 32], B2: [37, 40] };
+  const NAMES  = {
+    A:  'A1 · Start node',
+    B:  'A2 · End / Tap node',
+    B2: 'Group B · Energizing tap',
+  };
+  const range = RANGES[group] || RANGES.B;
+  const name  = NAMES[group]  || NAMES.B;
+  el('rp-title').textContent = `${name}  (${range[0]}–${range[1]})`;
 
   btnsEl.innerHTML = '';
   for (let rl = range[0]; rl <= range[1]; rl++) {
@@ -1857,6 +2201,54 @@ function closeRelayPicker() {
 el('rp-close').addEventListener('click', closeRelayPicker);
 el('rp-backdrop').addEventListener('click', closeRelayPicker);
 el('rp-clear').addEventListener('click', () => { if (rpCallback) rpCallback(null); closeRelayPicker(); });
+
+// ── wire-colour swatch picker ────────────────────────────────────────────────
+
+// Refresh a colour-assign button (swatch + name), remembering the hex on the DOM.
+function setColorBtn(id, hex) {
+  const btn = el(id);
+  if (!btn) return;
+  btn.dataset.hex = hex || '';
+  const sw = btn.querySelector('.swatch');
+  const nm = btn.querySelector('.cname');
+  if (sw) sw.style.background = hex ? wireSwatchBg(hex) : 'transparent';
+  if (nm) nm.textContent = hex ? (wireColorName(hex) || '—') : '—';
+}
+
+let cpCallback = null;
+
+function showColorPicker(currentHex, callback, anchorEl) {
+  cpCallback = callback;
+  const grid = el('cp-grid');
+  grid.innerHTML = '';
+  for (const c of WIRE_PALETTE) {
+    const sel = currentHex && String(currentHex).toLowerCase() === c.hex.toLowerCase();
+    const b = document.createElement('button');
+    b.className = 'cp-swatch' + (sel ? ' sel' : '');
+    b.innerHTML = `<span class="swatch" style="background:${wireSwatchBg(c.hex)}"></span>` +
+                  `<span class="cp-name">${esc(c.name)}</span>`;
+    b.addEventListener('click', () => { const cb = cpCallback; closeColorPicker(); if (cb) cb(c.hex); });
+    grid.appendChild(b);
+  }
+  const picker = el('color-picker');
+  const backdrop = el('cp-backdrop');
+  if (anchorEl) {
+    const r = anchorEl.getBoundingClientRect();
+    picker.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - 250))}px`;
+    picker.style.top  = `${r.bottom + 4}px`;
+  }
+  picker.classList.remove('hidden');
+  backdrop.classList.remove('hidden');
+}
+
+function closeColorPicker() {
+  el('color-picker').classList.add('hidden');
+  el('cp-backdrop').classList.add('hidden');
+  cpCallback = null;
+}
+
+el('cp-close').addEventListener('click', closeColorPicker);
+el('cp-backdrop').addEventListener('click', closeColorPicker);
 
 // ── serial port assignment modal ────────────────────────────────────────────
 
@@ -2072,6 +2464,7 @@ function bindRelayDiagnostic() {
   const btn = el('btn-relay-seq');
   if (!btn) return;
   btn.addEventListener('click', async () => {
+    if (_ff.active) { alert('Stop the Fault Finder before running the Diagnostic sequence.'); return; }
     if (_relaySeqRunning) {
       btn.disabled = true;
       try { await apiPost('/relays/sequence/stop'); } catch {}
@@ -2099,9 +2492,11 @@ document.addEventListener('DOMContentLoaded', () => {
   initCanvas();
   bindTabs();
   bindControlPanel();
+  bindTransformerPicker();
   bindPortsModal();
   bindRelayConnect();
   bindRelayDiagnostic();
+  bindRelayManual();
   loadTransformerList();
   connectWS();
   refreshRelayStatus();

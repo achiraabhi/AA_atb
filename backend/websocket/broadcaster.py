@@ -123,6 +123,8 @@ class WsBroadcaster:
                 "expected_voltage": result.expected_voltage,
                 "tolerance_pct":    result.tolerance_percent,
                 "passed":           result.passed,
+                "phase_ok":         result.phase_ok,
+                "to_tap_index":     result.to_tap_index,
                 "timestamp":        result.timestamp,
                 "error":            result.error,
             }

@@ -40,6 +40,12 @@ class TestStepResult:
     passed: bool
     timestamp: float
     error: Optional[str] = None
+    # Winding-polarity (phase) check: True = in-phase, False = out-of-phase,
+    # None = not checked (taps / energizing winding / board unavailable).
+    phase_ok: Optional[bool] = None
+    # Tap index of the measured node (None = full winding), so the UI can label
+    # a tap step "P2 (T1)" and pick the tap's own lead colour.
+    to_tap_index: Optional[int] = None
 
     @property
     def deviation_pct(self) -> float:

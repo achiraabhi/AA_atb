@@ -35,6 +35,12 @@ config_local.py
 # Logs
 logs/
 
+# Database (runtime-generated; schema self-creates on first run)
+data/
+*.db
+*.db-wal
+*.db-shm
+
 # Docs build artifacts
 docs/build_pdf.py
 docs/ARCHITECTURE.pdf

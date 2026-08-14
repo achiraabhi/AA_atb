@@ -104,6 +104,14 @@ class RelayControllerInterface(ABC):
     def get_status(self) -> HardwareStatus:
         """Return connection/health status."""
 
+    def read_phase(self):
+        """
+        Optional: read the phase-detect pin (winding polarity).
+        True = in-phase, False = out-of-phase, None = unknown/unsupported.
+        Default is None so controllers without the feature degrade gracefully.
+        """
+        return None
+
     @property
     @abstractmethod
     def relay_count(self) -> int:

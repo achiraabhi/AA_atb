@@ -129,7 +129,16 @@ async def lifespan(app: FastAPI):
 
     logger      = TestLogger()
     seq_manager = SequenceManager()
-    test_engine = TestEngine(state_manager, seq_manager, config_loader, hardware, logger)
+
+    # Persistence — SQLite result store (self-creates data/atb.db on first run).
+    from db.base import init_db, get_session
+    from db.store import ResultStore
+    init_db()
+    result_store = ResultStore(get_session)
+    app.state.result_store = result_store
+
+    test_engine = TestEngine(state_manager, seq_manager, config_loader, hardware,
+                             logger, store=result_store)
 
     from core.relay_sequence import RelaySequencer
     relay_sequencer = RelaySequencer(state_manager, hardware)

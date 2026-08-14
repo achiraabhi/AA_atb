@@ -24,7 +24,7 @@
       "taps": [],
       "coords": {},
       "wire_color_start": "#dc2626",
-      "wire_color_end": "#059669"
+      "wire_color_end": "#16a34a"
     },
     {
       "id": "P2",
@@ -39,15 +39,15 @@
       "taps": [],
       "coords": {},
       "wire_color_start": "#2563eb",
-      "wire_color_end": "#d97706"
+      "wire_color_end": "#ea580c"
     }
   ],
   "secondary": [
     {
       "id": "S1",
       "winding_type": "basic_winding",
-      "start_pin": 100,
-      "end_pin": 101,
+      "start_pin": 5,
+      "end_pin": 6,
       "voltage": 115,
       "dot_polarity": true,
       "relay_a": 2,
@@ -55,26 +55,29 @@
       "meas_channel": -1,
       "taps": [
         {
-          "pin": 0,
+          "pin": 7,
           "voltage": 0,
           "label": "T1",
-          "relay_b": 19
+          "relay_b": 19,
+          "wire_color": "#7c4a1e"
         },
         {
-          "pin": 0,
+          "pin": 8,
           "voltage": 0,
           "label": "T2",
-          "relay_b": 20
+          "relay_b": 20,
+          "wire_color": "#16a34a"
         }
       ],
       "coords": {},
-      "wire_color_start": "#7c3aed"
+      "wire_color_start": "#7c3aed",
+      "wire_color_end": "#65a30d"
     },
     {
       "id": "S3",
       "winding_type": "basic_winding",
-      "start_pin": 104,
-      "end_pin": 105,
+      "start_pin": 9,
+      "end_pin": 10,
       "voltage": 115,
       "dot_polarity": true,
       "relay_a": 3,
@@ -82,14 +85,14 @@
       "meas_channel": -1,
       "taps": [
         {
-          "pin": 0,
+          "pin": 11,
           "voltage": 0,
           "label": "T1",
           "relay_b": 22,
           "wire_color": "#dc2626"
         },
         {
-          "pin": 0,
+          "pin": 12,
           "voltage": 0,
           "label": "T2",
           "relay_b": 23,
@@ -97,14 +100,14 @@
         }
       ],
       "coords": {},
-      "wire_color_start": "#7c3aed",
-      "wire_color_end": "#475569"
+      "wire_color_start": "#eab308",
+      "wire_color_end": "#ffffff"
     }
   ],
   "tests": [],
   "ratio_rules": [
     {
-      "id": "auto_e5c1d290",
+      "id": "auto_0ad84aec",
       "excitation_segment": {
         "node_a": "P1",
         "node_b": "P1:end",
@@ -123,7 +126,7 @@
       "_label": "P2  230V"
     },
     {
-      "id": "auto_e6f6696b",
+      "id": "auto_22073a65",
       "excitation_segment": {
         "node_a": "P1",
         "node_b": "P1:end",
@@ -142,7 +145,7 @@
       "_label": "S1  115V"
     },
     {
-      "id": "auto_0c9a486c",
+      "id": "auto_125ef5a0",
       "excitation_segment": {
         "node_a": "P1",
         "node_b": "P1:end",
@@ -161,7 +164,7 @@
       "_label": "S1 @ T1  (0.0V)"
     },
     {
-      "id": "auto_2cb67e59",
+      "id": "auto_6537e110",
       "excitation_segment": {
         "node_a": "P1",
         "node_b": "P1:end",
@@ -180,7 +183,7 @@
       "_label": "S1 @ T2  (0.0V)"
     },
     {
-      "id": "auto_cd4162d2",
+      "id": "auto_b05b72a0",
       "excitation_segment": {
         "node_a": "P1",
         "node_b": "P1:end",
@@ -199,7 +202,7 @@
       "_label": "S3  115V"
     },
     {
-      "id": "auto_6d30aa6d",
+      "id": "auto_c315777a",
       "excitation_segment": {
         "node_a": "P1",
         "node_b": "P1:end",
@@ -218,7 +221,7 @@
       "_label": "S3 @ T1  (0.0V)"
     },
     {
-      "id": "auto_3add980a",
+      "id": "auto_0a8173e4",
       "excitation_segment": {
         "node_a": "P1",
         "node_b": "P1:end",

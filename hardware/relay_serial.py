@@ -22,7 +22,7 @@ import time
 from typing import List
 
 from hardware.protocol import (
-    build_select, build_clear, build_status,
+    build_select, build_clear, build_status, build_phase, parse_phase,
     DEFAULT_BAUD_MCU, RESP_ERROR, RESP_STATUS_MARK,
 )
 from hardware import relay_comm_log
@@ -142,6 +142,29 @@ class RelaySerial:
             if not self._connected or self._port is None:
                 return ""
             return self._read_block_locked(build_status())
+
+    def query_phase(self):
+        """
+        Send PHASE and return the phase-detect pin state:
+            True  — signal present  → winding IN-PHASE with the energizing winding
+            False — no signal        → OUT-OF-PHASE (polarity fault)
+            None  — not connected, no reply, or unrecognized (treat as unknown)
+        """
+        with self._lock:
+            if not self._connected or self._port is None:
+                return None
+            try:
+                self._port.reset_input_buffer()
+                self._port.write(build_phase().encode("ascii"))
+                self._port.flush()
+                relay_comm_log.record("TX", "PHASE")
+                resp = self._port.readline().decode("ascii", errors="replace").strip()
+                relay_comm_log.record("RX", resp or "(no reply)")
+                return parse_phase(resp)
+            except Exception as exc:
+                log.error(f"Relay serial I/O error (PHASE): {exc}")
+                self._connected = False
+                return None
 
     # ── internal ──────────────────────────────────────────────────────────
 

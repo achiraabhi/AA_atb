@@ -107,34 +107,61 @@ def save_transformer(body: SaveTransformerRequest, request: Request):
 
 
 # Relay groups for auto-assignment (mirror hardware.protocol ranges)
-_RL_A_MIN, _RL_A_MAX = 1, 16     # Side-A relays → voltmeter + probe
-_RL_B_MIN, _RL_B_MAX = 17, 32    # Side-B relays → voltmeter − probe
+_RL_A_MIN,  _RL_A_MAX  = 1, 16     # A1 — measurement winding start → + probe
+_RL_B_MIN,  _RL_B_MAX  = 17, 32    # A2 — measurement winding end/tap → − probe
+_RL_B2_MIN, _RL_B2_MAX = 37, 40    # Group B — energizing winding TAPS
+
+# The energizing winding's two mains wires carry no relay, so they have no
+# number — they are labelled instead.
+EN_PLUS  = "EN+"
+EN_MINUS = "EN-"
 
 
 def _auto_assign_relays(raw: Dict[str, Any], ew_id: str) -> None:
     """
-    Auto-assign relays to every winding/tap node, following the bench rules:
+    Auto-assign PIN NUMBERS and RELAYS to every winding/tap node.
 
-      • Energising winding:  NO measurement relays — its terminals are
-        permanent wiring and it is never routed through Group A. (Excitation
-        and its tap selection are handled externally.)
+    Relays (internal — the software closes these):
+      • Energising winding MAIN WIRES:  NO relays — start_pin/end_pin carry mains
+        and are permanent external wiring (start is hard-wired to the + bus).
+      • Energising winding TAPS:  one **Group B** relay each (RL37-40) — NOT the
+        A2 group. They are measured against the hard-wired start, closing only
+        that Group B relay. Only 4 exist, so at most 4 energising taps.
       • Measurement windings:  start → A1 (RL1-16), end → A2 (RL17-32).
       • Measurement-winding taps:  one A2 relay each (RL17-32),
         measured start→tap = winding.relay_a + tap.relay_b.
 
+    Pins (what the operator sees printed on each wire):
+      A relayed node's pin IS its relay number — one number per wire, nothing to
+      cross-reference. The energising winding's two mains wires carry no relay,
+      so they are labelled EN+ / EN- instead of a number.
+
+        P1 (energising)  start → EN+     (no relay)
+                         end   → EN-     (no relay)
+                         tap0  → pin 37  [relay 37]
+        S1               start → pin 1   [relay 1 ]
+                         end   → pin 17  [relay 17]
+
     Mutates ``raw`` in place. Raises HTTPException(400) if a group is exhausted.
     """
-    counters = {"a": _RL_A_MIN, "b": _RL_B_MIN}
+    counters = {"a": _RL_A_MIN, "b": _RL_B_MIN, "b2": _RL_B2_MIN}
 
     def take(group: str) -> int:
         if group == "a":
             if counters["a"] > _RL_A_MAX:
-                raise HTTPException(400, "Ran out of Group A relays (RL1–RL16)")
+                raise HTTPException(400, "Ran out of A1 relays (RL1–RL16)")
             v = counters["a"]; counters["a"] += 1
-        else:
+        elif group == "b":
             if counters["b"] > _RL_B_MAX:
-                raise HTTPException(400, "Ran out of Group B relays (RL17–RL32)")
+                raise HTTPException(400, "Ran out of A2 relays (RL17–RL32)")
             v = counters["b"]; counters["b"] += 1
+        else:
+            if counters["b2"] > _RL_B2_MAX:
+                raise HTTPException(
+                    400,
+                    "Ran out of Group B relays (RL37–RL40): the energizing "
+                    "winding has more than 4 taps, and Group B has only 4 relays.")
+            v = counters["b2"]; counters["b2"] += 1
         return v
 
     windings = (raw.get("primary") or []) + (raw.get("secondary") or [])
@@ -143,24 +170,32 @@ def _auto_assign_relays(raw: Dict[str, Any], ew_id: str) -> None:
 
     for w in ordered:
         if w.get("id") == ew_id:
-            # Energizing winding: its start/end are permanent dedicated wiring
-            # (never switched) and it is NEVER routed through Group A. Its
-            # excitation voltage is read by the V1 meter, and excitation-tap
-            # selection (Group B, R37-40) is handled externally — so it takes
-            # no measurement relays at all.
-            w["relay_a"] = None
-            w["relay_b"] = None
+            # Energizing winding: only its MAIN WIRES are external. start_pin /
+            # end_pin carry mains, are never switched and take no relays — the
+            # start is hard-wired to the voltmeter + bus. With no relay there is
+            # no number to print, so they are labelled EN+ / EN- instead.
+            # Its TAPS are measured through GROUP B (37-40, not the A2 group);
+            # a tap measurement closes only that Group B relay.
+            w["relay_a"]   = None
+            w["relay_b"]   = None
+            w["start_pin"] = EN_PLUS
+            w["end_pin"]   = EN_MINUS
             for tap in (w.get("taps") or []):
                 tap.pop("relay_a", None)
-                tap["relay_b"] = None
+                tap["relay_b"] = take("b2")
+                tap["pin"]     = tap["relay_b"]      # pin == relay
         else:
-            # Measurement winding: start → A1 (RL1-16), end → A2 (RL17-32),
-            # each tap → A2 (RL17-32). Measured start→(end|tap).
-            w["relay_a"] = take("a")
-            w["relay_b"] = take("b")
+            # Measurement winding: start → A1 (1-16), end → A2 (17-32),
+            # each tap → A2 (17-32). Measured start→(end|tap).
+            # Each node's pin IS its relay number.
+            w["relay_a"]   = take("a")
+            w["start_pin"] = w["relay_a"]
+            w["relay_b"]   = take("b")
+            w["end_pin"]   = w["relay_b"]
             for tap in (w.get("taps") or []):
                 tap.pop("relay_a", None)
                 tap["relay_b"] = take("b")
+                tap["pin"]     = tap["relay_b"]      # pin == relay
 
 
 @router.post("/transformers/{transformer_id}/generate-rules")
@@ -351,6 +386,68 @@ def stop_relay_sequence(request: Request):
     seq = _get(request, "relay_sequencer")
     seq.stop()
     return {"running": False}
+
+
+class SetRelayRequest(BaseModel):
+    relay_id: int
+    state: bool
+    exclusive: bool = False   # open all others first (fault-finder / step mode)
+
+
+def _relay_states_map(hw) -> Dict[str, bool]:
+    return {str(k): v for k, v in hw.relays.get_all_states().items()}
+
+
+def _guard_manual_relays(sm, seq) -> None:
+    """Manual relay control is only safe when no test/sequence owns the board."""
+    if sm.app_state in (AppState.TESTING, AppState.PAUSED, AppState.STOPPING):
+        raise HTTPException(409, "Cannot control relays while a test is active")
+    if seq.running:
+        raise HTTPException(409, "Cannot control relays while a diagnostic sequence is running")
+
+
+@router.post("/relays/set")
+def set_single_relay(body: SetRelayRequest, request: Request):
+    """
+    Dev-panel manual control: toggle one selectable relay (RL1–32) on/off.
+
+    Gate relays (RL33–36) are firmware-controlled and RL37–40 are external, so
+    only A-side (RL1–16) and B-side (RL17–32) relays may be driven here.
+    With `exclusive`, all other relays are opened first (used by the fault
+    finder to energize exactly one relay at a time).
+    """
+    from hardware.protocol import is_selectable
+
+    sm  = _get(request, "state_manager")
+    hw  = _get(request, "hardware")
+    seq = _get(request, "relay_sequencer")
+
+    _guard_manual_relays(sm, seq)
+    if not is_selectable(body.relay_id):
+        raise HTTPException(
+            400, f"RL{body.relay_id} is not directly selectable "
+                 f"(gates RL33–36 and RL37–40 are external)")
+
+    if body.exclusive and body.state:
+        hw.relays.reset_all_relays()
+    ok = hw.relays.set_relay(body.relay_id, bool(body.state))
+    sm.set_relay_states(hw.relays.get_all_states())
+    return {"ok": ok, "relays": _relay_states_map(hw)}
+
+
+@router.post("/relays/clear")
+def clear_all_relays(request: Request):
+    """Dev-panel manual control: open every relay (also stops a running sequence)."""
+    sm  = _get(request, "state_manager")
+    hw  = _get(request, "hardware")
+    seq = _get(request, "relay_sequencer")
+
+    if sm.app_state in (AppState.TESTING, AppState.PAUSED, AppState.STOPPING):
+        raise HTTPException(409, "Cannot clear relays while a test is active")
+    seq.stop()   # no-op when idle; the sequencer opens all relays as it exits
+    hw.relays.reset_all_relays()
+    sm.set_relay_states(hw.relays.get_all_states())
+    return {"ok": True, "relays": _relay_states_map(hw)}
 
 
 @router.post("/transformer/select")
@@ -635,6 +732,18 @@ def assign_relay(body: AssignRelayRequest, request: Request):
                             detail=f"Could not open relay board on {body.port}")
     request.app.state.relay_port = body.port
     return {"connected": True, "port": body.port}
+
+
+# ── database ──────────────────────────────────────────────────────────────────
+
+@router.get("/db/stats")
+def db_stats(request: Request):
+    """Roll-up of persisted results (units/yield/batches). Proves the DB layer is
+    live and feeds a future Reports tab."""
+    store = getattr(request.app.state, "result_store", None)
+    if store is None:
+        raise HTTPException(503, "Database not initialised")
+    return store.stats()
 
 
 # ── logs ──────────────────────────────────────────────────────────────────────

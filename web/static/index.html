@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ATB — After-Assembling Test Bench</title>
+  <title>Noratel — After-Assembling Test Bench</title>
   <link rel="stylesheet" href="/static/fonts/fonts.css" />
   <link rel="stylesheet" href="/static/style.css" />
   <script src="/static/konva.min.js"></script>
@@ -13,14 +13,14 @@
 <!-- ═══════════════════════════ HEADER ═══════════════════════════ -->
 <header id="header">
   <div class="brand">
-    <div class="brand-icon">T</div>
-    <span class="brand-name">ATB</span>
+    <img class="brand-logo" src="/static/noratel-logo.png" alt="Noratel" />
     <span class="brand-sub">After-Assembling Test Bench</span>
   </div>
 
   <nav class="tabs">
     <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
     <button class="tab-btn" data-tab="editor">Editor</button>
+    <button class="tab-btn" data-tab="devpanel">Dev Panel</button>
     <button class="tab-btn" data-tab="logs">Logs</button>
   </nav>
 
@@ -111,9 +111,10 @@
           <div class="panel-body">
             <div class="field">
               <label class="label">Transformer</label>
-              <select id="tf-select" class="input">
-                <option value="">— Select —</option>
-              </select>
+              <button id="tf-select" type="button" class="input tf-select-btn">
+                <span id="tf-select-label" class="tf-select-label muted">— Select —</span>
+                <span class="tf-select-caret">▾</span>
+              </button>
               <span id="tf-required-hint" class="field-hint hidden">Select a transformer to run a test</span>
             </div>
 
@@ -135,22 +136,28 @@
               <div class="excitation-hdr">
                 <span class="excitation-label">Excitation Setup</span>
                 <span id="ratio-badge" class="ratio-badge hidden">×—</span>
+                <label class="toggle-switch" title="Show / hide excitation setup">
+                  <input id="excitation-toggle" type="checkbox" checked />
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                </label>
               </div>
-              <div class="field-row">
-                <div class="field">
-                  <label class="label">Excitation Winding</label>
-                  <select id="excitation-winding" class="input input-sm">
-                    <option value="">— Select —</option>
-                  </select>
+              <div id="excitation-body">
+                <div class="field-row">
+                  <div class="field">
+                    <label class="label">Excitation Winding</label>
+                    <select id="excitation-winding" class="input input-sm">
+                      <option value="">— Select —</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label class="label">Applied Voltage (V)</label>
+                    <input id="applied-voltage" type="number" min="0" step="0.1"
+                           class="input input-sm" placeholder="e.g. 200" />
+                  </div>
                 </div>
-                <div class="field">
-                  <label class="label">Applied Voltage (V)</label>
-                  <input id="applied-voltage" type="number" min="0" step="0.1"
-                         class="input input-sm" placeholder="e.g. 200" />
+                <div id="ratio-preview" class="ratio-preview hidden">
+                  <span id="ratio-preview-text" class="ratio-preview-text"></span>
                 </div>
-              </div>
-              <div id="ratio-preview" class="ratio-preview hidden">
-                <span id="ratio-preview-text" class="ratio-preview-text"></span>
               </div>
             </div>
 
@@ -180,43 +187,6 @@
             </div>
 
             <button id="btn-emergency" class="btn btn-emergency">⚡ EMERGENCY STOP</button>
-          </div>
-        </div>
-
-        <!-- Relay MCU ⇄ PC serial console -->
-        <div class="panel" id="relay-comm-panel">
-          <div class="panel-hdr">
-            <span class="panel-title">Relay MCU ⇄ PC</span>
-            <button id="btn-relay-connect" class="btn btn-sm hidden" style="margin-left:auto;margin-right:8px;padding:2px 10px">⚡ Connect</button>
-            <span id="relay-comm-status" class="relay-count">idle</span>
-          </div>
-          <div class="panel-body">
-            <div id="relay-comm-log" class="relay-comm-log"></div>
-          </div>
-        </div>
-
-        <!-- Relay grid -->
-        <div class="panel" id="relay-panel">
-          <div class="panel-hdr">
-            <span class="panel-title">Relay Matrix</span>
-            <button id="btn-relay-seq" class="btn btn-sm"
-                    title="Diagnostic: energize each assigned relay (and its gate) for 1 second"
-                    style="margin-left:auto;margin-right:8px;padding:2px 10px">🔧 Diagnostic</button>
-            <span id="relay-count" class="relay-count">0 active</span>
-          </div>
-
-          <div class="panel-body">
-            <div class="relay-group-label">A1 — Measure: Start nodes <span class="col-a">(RL1–16)</span></div>
-            <div id="relays-a" class="relay-row"></div>
-
-            <div class="relay-group-label" style="margin-top:10px">A2 — Measure: End / Tap nodes <span class="col-b">(RL17–32)</span></div>
-            <div id="relays-b" class="relay-row"></div>
-
-            <div class="relay-group-label" style="margin-top:10px">B — Energize tap <span class="col-b">(RL37–40, external)</span></div>
-            <div id="relays-b2" class="relay-row"></div>
-
-            <div class="relay-group-label" style="margin-top:10px">Gate Relays <span class="col-b">(RL33–36, auto)</span></div>
-            <div id="relays-gate" class="relay-row"></div>
           </div>
         </div>
 
@@ -250,10 +220,12 @@
 
         <div class="panel" id="status-panel">
           <div class="panel-hdr">
-            <span class="panel-title">Live Measurement</span>
+            <span class="panel-title">Session</span>
           </div>
 
-          <div class="meas-cards">
+          <!-- Per-step live numbers now surface on-tap in Step Results; this
+               always-on readout is hidden so the test runs in the background. -->
+          <div class="meas-cards hidden">
             <div class="meas-card">
               <div class="meas-label">Measured</div>
               <div class="meas-value" id="meas-measured">—</div>
@@ -326,15 +298,8 @@
             <span class="panel-title">Step Results</span>
             <span id="results-summary" class="results-summary"></span>
           </div>
-          <div id="results-table-wrap" class="results-table-wrap">
-            <table id="results-table" class="results-table">
-              <thead>
-                <tr>
-                  <th>#</th><th>Path</th><th>Measured</th><th>Expected</th><th>Result</th>
-                </tr>
-              </thead>
-              <tbody id="results-tbody"></tbody>
-            </table>
+          <div id="results-list" class="results-list">
+            <div class="results-empty">Steps appear here as the test runs. Tap a step to see its measurement.</div>
           </div>
         </div>
 
@@ -467,55 +432,21 @@
                 <label class="label">Voltage (V)</label>
                 <input id="insp-voltage" type="number" class="input" />
               </div>
-              <div class="field-row">
-                <div class="field">
-                  <label class="label">Start Pin</label>
-                  <input id="insp-start-pin" type="number" class="input" />
-                </div>
-                <div class="field">
-                  <label class="label">End Pin</label>
-                  <input id="insp-end-pin" type="number" class="input" />
-                </div>
-              </div>
               <div id="insp-energize-note" class="hidden" style="margin:4px 0 8px;padding:6px 8px;border-radius:4px;background:rgba(217,119,6,0.12);border:1px solid rgba(217,119,6,0.4);font-size:11px;color:#b45309">
-                ⚡ Energizing winding — terminals are permanent wiring and are <b>not</b> routed through the relay matrix. No measurement relay is assigned (excitation is external).
+                ⚡ Energizing winding — only its <b>main wires</b> are external: they carry mains, are never switched, and take <b>no relay</b> (the start is hard-wired to the voltmeter + bus). Its <b>taps are still measured</b> — assign each a <b>Group B relay (37–40)</b>, not an A2 relay.
               </div>
               <div class="field">
-                <label class="label">Start node → <span class="col-a">A1 (RL1–16)</span></label>
+                <label class="label">Start node → <span class="col-a">A1 (1–16)</span></label>
                 <div style="display:flex;gap:6px">
                   <button id="insp-relay-a" class="relay-assign-btn" data-group="A" style="flex:1">None</button>
-                  <select id="insp-wire-color-start" class="input" style="flex:0 0 90px">
-                    <option value="#1a3d6e">Navy</option>
-                    <option value="#2563eb">Blue</option>
-                    <option value="#18243a">Black</option>
-                    <option value="#475569">Slate</option>
-                    <option value="#dc2626">Red</option>
-                    <option value="#059669">Green</option>
-                    <option value="#d97706">Orange</option>
-                    <option value="#7c3aed">Purple</option>
-                    <option value="#0891b2">Cyan</option>
-                    <option value="#78716c">Brown</option>
-                    <option value="#64748b">Gray</option>
-                  </select>
+                  <button id="insp-wire-color-start" class="color-btn" type="button"><span class="swatch"></span><span class="cname">—</span></button>
                 </div>
               </div>
               <div class="field">
-                <label class="label">End node → <span class="col-b">A2 (RL17–32)</span></label>
+                <label class="label">End node → <span class="col-b">A2 (17–32)</span></label>
                 <div style="display:flex;gap:6px">
                   <button id="insp-relay-b" class="relay-assign-btn" data-group="B" style="flex:1">None</button>
-                  <select id="insp-wire-color-end" class="input" style="flex:0 0 90px">
-                    <option value="#1a3d6e">Navy</option>
-                    <option value="#2563eb">Blue</option>
-                    <option value="#18243a">Black</option>
-                    <option value="#475569">Slate</option>
-                    <option value="#dc2626">Red</option>
-                    <option value="#059669">Green</option>
-                    <option value="#d97706">Orange</option>
-                    <option value="#7c3aed">Purple</option>
-                    <option value="#0891b2">Cyan</option>
-                    <option value="#78716c">Brown</option>
-                    <option value="#64748b">Gray</option>
-                  </select>
+                  <button id="insp-wire-color-end" class="color-btn" type="button"><span class="swatch"></span><span class="cname">—</span></button>
                 </div>
               </div>
             </div>
@@ -610,9 +541,12 @@
               </div>
             </div>
 
-            <div class="insp-sub-hdr" style="margin-top:10px">Measurement Rules</div>
+            <div class="insp-sub-hdr" style="margin-top:12px">
+              <span>Measurement Rules</span>
+              <span id="rules-count" class="insp-sub-count">0</span>
+            </div>
             <div id="rules-list-items" class="rules-list-items"></div>
-            <button id="insp-add-rule" class="btn btn-sm" style="width:100%;margin-top:8px">+ Add Measurement</button>
+            <button id="insp-add-rule" class="btn btn-sm add-rule-btn" style="width:100%;margin-top:8px">+ Add Measurement</button>
           </div>
 
           <!-- Tap inspector -->
@@ -627,35 +561,19 @@
                 <input id="insp-tap-label" class="input" />
               </div>
               <div class="field">
-                <label class="label">Pin #</label>
-                <input id="insp-tap-pin" type="number" class="input" />
-              </div>
-              <div class="field">
                 <label class="label">Voltage (V)</label>
                 <input id="insp-tap-voltage" type="number" class="input" />
               </div>
-              <div id="insp-tap-energize-note" class="hidden" style="margin:4px 0 8px;padding:6px 8px;border-radius:4px;background:rgba(217,119,6,0.12);border:1px solid rgba(217,119,6,0.4);font-size:11px;color:#b45309">
-                ⚡ Tap of the energizing winding — selected externally (Group B), not routed through the measurement matrix. No relay assigned.
+              <div id="insp-tap-energize-note" class="hidden" style="margin:4px 0 8px;padding:6px 8px;border-radius:4px;background:rgba(2,132,199,0.12);border:1px solid rgba(2,132,199,0.4);font-size:11px;color:#0369a1">
+                ⚡ Tap of the energizing winding — this tap <b>is</b> measured, through <b>Group B (37–40)</b> rather than the A2 group. Because the winding's start is hard-wired to the + bus, the measurement closes <b>only this tap's Group B relay</b> (no A relay; gates 35/36 close automatically).
               </div>
               <div class="field">
-                <label class="label">Tap node → <span class="col-b">A2 (RL17–32)</span></label>
+                <label class="label">Tap node → <span id="insp-tap-relay-group" class="col-b">A2 (17–32)</span></label>
                 <button id="insp-tap-relay-b" class="relay-assign-btn" data-group="B">None</button>
               </div>
               <div class="field">
                 <label class="label">Wire Color</label>
-                <select id="insp-tap-wire-color" class="input">
-                  <option value="#1a3d6e">Navy</option>
-                  <option value="#2563eb">Blue</option>
-                  <option value="#18243a">Black</option>
-                  <option value="#475569">Slate</option>
-                  <option value="#dc2626">Red</option>
-                  <option value="#059669">Green</option>
-                  <option value="#d97706">Orange</option>
-                  <option value="#7c3aed">Purple</option>
-                  <option value="#0891b2">Cyan</option>
-                  <option value="#78716c">Brown</option>
-                  <option value="#64748b">Gray</option>
-                </select>
+                <button id="insp-tap-wire-color" class="color-btn" type="button" style="width:100%"><span class="swatch"></span><span class="cname">—</span></button>
               </div>
             </div>
             <div class="insp-actions">
@@ -665,6 +583,86 @@
 
         </aside>
       </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────── DEV PANEL TAB ─────────────────── -->
+  <div id="tab-devpanel" class="tab-pane">
+    <div class="devpanel-layout">
+
+      <!-- Left: Relay MCU ⇄ PC serial console -->
+      <div class="devpanel-col devpanel-col-comm">
+        <div class="panel" id="relay-comm-panel">
+          <div class="panel-hdr">
+            <span class="panel-title">Relay MCU ⇄ PC</span>
+            <button id="btn-relay-connect" class="btn btn-sm hidden" style="margin-left:auto;margin-right:8px;padding:2px 10px">⚡ Connect</button>
+            <span id="relay-comm-status" class="relay-count">idle</span>
+          </div>
+          <div class="panel-body">
+            <div id="relay-comm-log" class="relay-comm-log"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Relay Matrix grid -->
+      <div class="devpanel-col devpanel-col-matrix">
+        <div class="panel" id="relay-panel">
+          <div class="panel-hdr">
+            <span class="panel-title">Relay Matrix</span>
+            <span id="relay-count" class="relay-count" style="margin-left:auto">0 active</span>
+          </div>
+
+          <div class="dev-relay-toolbar">
+            <span class="dev-hint">Click any <b>1–32</b> relay to toggle it manually.</span>
+            <div style="flex:1"></div>
+            <button id="btn-relay-clear" class="btn btn-sm" title="Open all relays">✕ Clear</button>
+            <button id="btn-relay-seq" class="btn btn-sm"
+                    title="Assigned-relay click-test: energize each assigned relay (and its gate) for 1 second">🔧 Diagnostic</button>
+            <button id="btn-fault-finder" class="btn btn-sm ff-start-btn"
+                    title="Step through every relay one at a time and mark each OK or faulty">🔎 Fault Finder</button>
+          </div>
+
+          <div class="panel-body">
+            <div class="relay-group-label">A1 — Measure: Start nodes <span class="col-a">(1–16)</span></div>
+            <div id="relays-a" class="relay-row"></div>
+
+            <div class="relay-group-label" style="margin-top:10px">A2 — Measure: End / Tap nodes <span class="col-b">(17–32)</span></div>
+            <div id="relays-b" class="relay-row"></div>
+
+            <div class="relay-group-label" style="margin-top:10px">B — Energizing winding: Tap nodes <span class="col-b2">(37–40)</span></div>
+            <div id="relays-b2" class="relay-row"></div>
+
+            <div class="relay-group-label" style="margin-top:10px">Gate Relays <span class="col-b">(33–36, auto)</span></div>
+            <div id="relays-gate" class="relay-row"></div>
+          </div>
+        </div>
+
+        <!-- Fault Finder: step through each relay, mark OK / faulty -->
+        <div class="panel hidden" id="fault-finder-panel">
+          <div class="panel-hdr">
+            <span class="panel-title">Fault Finder</span>
+            <span id="ff-progress" class="relay-count" style="margin-left:auto">—</span>
+          </div>
+          <div class="panel-body ff-body">
+            <div class="ff-current">
+              <div class="ff-current-main">
+                <span id="ff-current-relay" class="ff-current-relay">RL—</span>
+                <span id="ff-current-group" class="ff-current-group">—</span>
+              </div>
+              <div class="ff-current-hint">Energized — listen / probe, then mark it.</div>
+            </div>
+            <div class="ff-actions">
+              <button id="ff-ok"     class="btn btn-sm ff-ok">✓ OK</button>
+              <button id="ff-faulty" class="btn btn-sm ff-faulty">✗ Faulty</button>
+              <button id="ff-skip"   class="btn btn-sm">↷ Skip</button>
+              <button id="ff-stop"   class="btn btn-sm ff-stop">■ Stop</button>
+            </div>
+            <div id="ff-summary" class="ff-summary hidden"></div>
+            <div id="ff-results" class="ff-results"></div>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -689,6 +687,19 @@
 
 </main>
 
+<!-- Transformer picker (shared: dashboard select + editor Load) -->
+<div id="tf-picker-backdrop" class="rp-backdrop hidden"></div>
+<div id="tf-picker-modal" class="tf-picker-modal hidden">
+  <div class="rp-header">
+    <span id="tf-picker-title">Select Transformer</span>
+    <button id="tf-picker-close" class="rp-close">✕</button>
+  </div>
+  <div class="tf-picker-search-wrap">
+    <input id="tf-picker-search" class="input" type="text" placeholder="Search by name or ID…" autocomplete="off" />
+  </div>
+  <div id="tf-picker-list" class="tf-picker-list"></div>
+</div>
+
 <!-- Relay picker popup (shared) -->
 <div id="relay-picker" class="relay-picker hidden">
   <div class="rp-header">
@@ -699,6 +710,16 @@
   <button id="rp-clear" class="btn btn-sm" style="width:100%;margin-top:6px">Clear</button>
 </div>
 <div id="rp-backdrop" class="rp-backdrop hidden"></div>
+
+<!-- Wire-colour picker (shared, swatch grid) -->
+<div id="color-picker" class="color-picker hidden">
+  <div class="rp-header">
+    <span>Wire Colour</span>
+    <button id="cp-close" class="rp-close">✕</button>
+  </div>
+  <div id="cp-grid" class="cp-grid"></div>
+</div>
+<div id="cp-backdrop" class="rp-backdrop hidden"></div>
 
 <!-- Serial port assignment modal -->
 <div id="ports-backdrop" class="rp-backdrop hidden"></div>
@@ -734,8 +755,8 @@
   </div>
 </div>
 
-<script src="/static/canvas.js?v=11"></script>
-<script src="/static/editor.js?v=11"></script>
-<script src="/static/app.js?v=11"></script>
+<script src="/static/canvas.js?v=28"></script>
+<script src="/static/editor.js?v=28"></script>
+<script src="/static/app.js?v=28"></script>
 </body>
 </html>

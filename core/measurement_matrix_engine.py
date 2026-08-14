@@ -164,7 +164,11 @@ class MeasurementMatrixEngine:
             # Routing is best-effort: relays may be unassigned at design time
             # (the operator fills relay numbers in later). Generate the point
             # regardless so the measurement sequence is complete.
-            relay_ids = self._route_tap(energize_w, tap) or []
+            #
+            # This IS the energizing winding: its main wires are external and its
+            # start is hard-wired to the + bus, so the tap routes on its B relay
+            # alone (no A relay).
+            relay_ids = self._route_tap(energize_w, tap, energizing=True) or []
             label   = tap.get("label", f"Tap {i}")
             voltage = float(tap.get("voltage", 0.0))
             mc      = int(tap.get("meas_channel", 0))
@@ -236,9 +240,10 @@ class MeasurementMatrixEngine:
             log.debug(f"Skipping winding '{winding.id}' — no route: {exc}")
             return None
 
-    def _route_tap(self, winding: WindingConfig, tap: dict) -> Optional[List[int]]:
+    def _route_tap(self, winding: WindingConfig, tap: dict,
+                   energizing: bool = False) -> Optional[List[int]]:
         try:
-            return self._router.resolve_tap_auto(winding, tap)
+            return self._router.resolve_tap_auto(winding, tap, energizing=energizing)
         except RoutingError as exc:
             log.debug(
                 f"Skipping tap '{tap.get('label', '?')}' on '{winding.id}' — no route: {exc}"

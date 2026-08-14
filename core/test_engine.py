@@ -11,6 +11,7 @@ State machine:
 The engine thread stays alive between units waiting for the next batch command.
 Stop/complete-batch are the only ways to exit the engine thread.
 """
+import os
 import time
 import threading
 import queue
@@ -40,12 +41,14 @@ class TestEngine:
                  sequence_manager: SequenceManager,
                  config_loader: ConfigLoader,
                  hardware: HardwareManagerInterface,
-                 logger: TestLogger):
+                 logger: TestLogger,
+                 store=None):
         self._state = state_manager
         self._seq   = sequence_manager
         self._cfgs  = config_loader
         self._hw    = hardware
         self._log   = logger
+        self._store = store   # db.store.ResultStore | None (persistence is optional)
 
         self._cmd_queue: queue.Queue        = queue.Queue()
         self._thread: Optional[threading.Thread] = None
@@ -61,6 +64,58 @@ class TestEngine:
         self._nominal_excitation_voltage: Optional[float] = None
         self._ratio_factor:               Optional[float] = None
         self._ratio_engine = TransformerRatioEngine()
+
+    # ── winding-polarity (phase) check ──────────────────────────────────────────
+
+    def _read_step_phase(self, step) -> Optional[bool]:
+        """Read the phase-detect pin for this step, or None when it doesn't apply.
+
+        Applies ONLY to a main winding's full-winding measurement (energizing↔
+        main). Excluded: taps (to_tap_index set) and the energizing winding
+        itself. Disabled entirely by PHASE_CHECK=off. True=in-phase, False=out-
+        of-phase, None=not applicable / board unavailable."""
+        if os.getenv("PHASE_CHECK", "on").strip().lower() in ("off", "0", "false", "no"):
+            return None
+        if step.to_tap_index is not None:
+            return None
+        if self._excitation_winding_id and step.to_winding_id == self._excitation_winding_id:
+            return None
+        try:
+            return self._hw.relays.read_phase()
+        except Exception as e:
+            self._log.warn(f"Phase read failed: {e}")
+            return None
+
+    # ── persistence ────────────────────────────────────────────────────────────
+
+    def _persist_unit(self, config, session, unit_result) -> None:
+        """Dual-write a completed/skipped unit to the database (best-effort).
+
+        Runs alongside the existing CSV/JSON export — the file logs are unchanged;
+        this just also lands the data in SQLite so it is queryable and survives
+        restarts. Never raises: a DB failure must not disturb the test flow."""
+        if self._store is None:
+            return
+        try:
+            config_raw = None
+            tid = getattr(config, "transformer_id", None) or getattr(unit_result, "transformer_id", None)
+            if tid:
+                try:
+                    config_raw = self._cfgs.get_raw_json(tid)
+                except Exception:
+                    config_raw = None
+            self._store.save_unit_result(
+                config_raw=config_raw,
+                session=session,
+                unit_result=unit_result,
+                batch=self._state.batch_session,
+                operator=self._current_operator or self._state.operator_name,
+                applied_voltage=self._applied_voltage,
+                ratio_factor=self._ratio_factor,
+                nominal_excitation_voltage=self._nominal_excitation_voltage,
+            )
+        except Exception as e:
+            self._log.warn(f"DB persist failed: {e}")
 
     # ── Public command API ────────────────────────────────────────────────────
 
@@ -322,12 +377,13 @@ class TestEngine:
         final_state = AppState.PASS if all_pass else AppState.FAIL
         self._state.app_state = final_state
 
-        # Persist log
+        # Persist log (CSV/JSON export) + database (queryable, restart-safe)
         if session:
             try:
                 self._log.save_session(session, operator)
             except Exception as e:
                 self._log.warn(f"Log save failed: {e}")
+        self._persist_unit(config, session, unit_result)
 
         verdict = "PASS" if all_pass else "FAIL"
         self._log.info(
@@ -375,6 +431,12 @@ class TestEngine:
 
         reading = self._hw.voltmeter.read_voltage(step.measurement_channel)
 
+        # Winding-polarity (phase) check — while the winding is still energized.
+        # Only for a MAIN winding's full measurement (energizing↔main); taps and
+        # the energizing winding itself are excluded. True=in-phase, False=out-of-
+        # phase (fault), None=not checked/unavailable.
+        phase_ok = self._read_step_phase(step)
+
         if not reading.valid:
             self._state.set_measurement(None)
             result = TestStepResult(
@@ -387,6 +449,8 @@ class TestEngine:
                 passed            = False,
                 timestamp         = time.time(),
                 error             = reading.error or "Voltage read error",
+                phase_ok          = phase_ok,
+                to_tap_index      = step.to_tap_index,
             )
             self._log.error(f"  Measurement error: {reading.error}")
         else:
@@ -403,6 +467,14 @@ class TestEngine:
                 passed = abs(measured - expected_voltage) <= tol_v
                 reason = "PASS" if passed else "FAIL"
 
+            # A reversed winding reads the right RMS magnitude, so an out-of-phase
+            # result must fail the step independently of the voltage tolerance.
+            phase_err = None
+            if phase_ok is False:
+                passed = False
+                reason = "FAIL (out-of-phase)"
+                phase_err = "Out-of-phase (winding polarity reversed)"
+
             result = TestStepResult(
                 step_index        = step.index,
                 from_winding      = step.from_winding_id,
@@ -412,6 +484,9 @@ class TestEngine:
                 tolerance_percent = step.tolerance_percent,
                 passed            = passed,
                 timestamp         = time.time(),
+                error             = phase_err,
+                phase_ok          = phase_ok,
+                to_tap_index      = step.to_tap_index,
             )
             tap_info = ""
             if step.from_tap_index is not None:
@@ -465,13 +540,20 @@ class TestEngine:
             total_steps    = 0,
         )
         self._state.add_unit_result(unit_result)
+        self._persist_unit(self._current_config, None, unit_result)
         self._log.info(f"Unit {unit_num} skipped: {reason}")
 
     def _do_complete_batch(self) -> None:
         self._hw.relays.reset_all_relays()
         self._state.reset_relay_states()
         self._state.fire_relays_cleared()
-        if self._state.batch_session is not None:
+        batch = self._state.batch_session
+        if batch is not None:
+            if self._store is not None:
+                try:
+                    self._store.close_batch(batch.batch_id, status="complete")
+                except Exception as e:
+                    self._log.warn(f"DB close_batch failed: {e}")
             self._state.end_batch()
         self._state.app_state = AppState.IDLE
         self._log.info("Batch completed")

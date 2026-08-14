@@ -37,21 +37,23 @@ Electrical segment model:
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass, field
 
 
 @dataclass
 class WindingConfig:
     id:           str
-    start_pin:    int
-    end_pin:      int
+    # A pin IS its relay number (one number per wire). The energizing winding's
+    # two mains wires carry no relay, so they are labelled "EN+" / "EN-" instead.
+    start_pin:    Union[int, str]
+    end_pin:      Union[int, str]
     voltage:      float           # nominal voltage at full excitation
     dot_polarity: bool = True
     taps:         List[Dict] = field(default_factory=list)
     coords:       Dict = field(default_factory=dict)
-    relay_a:      Optional[int] = None   # RL1-16  start_pin → voltmeter +
-    relay_b:      Optional[int] = None   # RL17-32 end_pin   → voltmeter −
+    relay_a:      Optional[int] = None   # 1-16  start_pin → voltmeter +
+    relay_b:      Optional[int] = None   # 17-32 end_pin   → voltmeter −
     meas_channel: int = -1
     can_energize: bool = True            # may be used as excitation winding
     # ── deprecated fields kept for backward compat ──────────────────────

@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Transformer Editor — Static Visual Mockup</title>
+<style>
+  :root{
+    --bg:#e8ecf2; --panel:#f3f5f9; --card:#fff; --border:#cdd3df; --muted:#7b8baa;
+    --text:#18243a; --primary:#2563eb; --accent:#0284c7; --glow:#059669;
+    --warning:#d97706; --danger:#dc2626;
+    --mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;
+    --sans:'IBM Plex Sans',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    --radius:6px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#dfe4ec;color:var(--text);font-family:var(--sans);font-size:14px;padding:24px;line-height:1.4}
+  .doc-note{max-width:1000px;margin:0 auto 18px;font-family:var(--mono);font-size:12px;color:#516079;
+    background:#fff;border:1px solid var(--border);border-radius:8px;padding:12px 16px}
+  .doc-note b{color:var(--text)}
+  .screen-label{max-width:1000px;margin:26px auto 8px;font-family:var(--mono);font-size:12px;font-weight:700;
+    letter-spacing:1px;text-transform:uppercase;color:#516079}
+
+  /* ── editor frame ─────────────────────────────────────────── */
+  .editor{max-width:1000px;margin:0 auto;height:520px;background:var(--panel);border:1px solid var(--border);
+    border-radius:8px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 6px 24px rgba(20,40,80,.10)}
+  .topo-chrome{display:flex;flex-direction:column;height:100%;overflow:hidden}
+
+  /* toolbar */
+  .topo-toolbar{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--border);
+    flex-shrink:0;background:var(--panel)}
+  .tb-section{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--text);text-transform:uppercase;
+    letter-spacing:1px;padding:0 4px}
+  .tb-btn{font-family:var(--mono);font-size:11px;padding:5px 9px;border:1px solid var(--border);background:var(--card);
+    color:var(--text);border-radius:5px;cursor:pointer;white-space:nowrap}
+  .tb-btn[disabled]{opacity:.45}
+  .tb-btn.primary-tb{border-color:rgba(37,99,235,.4);color:var(--primary)}
+  .tb-btn.secondary-tb{border-color:rgba(2,132,199,.4);color:var(--accent)}
+  .tb-btn.danger-tb{border-color:rgba(220,38,38,.35);color:var(--danger)}
+  .tb-btn.mode-tb.active{background:rgba(37,99,235,.12);border-color:rgba(37,99,235,.5);color:var(--primary)}
+  .tb-btn.glow-tb{border-color:rgba(5,150,105,.4);color:var(--glow)}
+  .tb-btn.icon-tb{padding:5px 8px}
+  .tb-sep{width:1px;height:20px;background:var(--border);margin:0 2px}
+  .tb-zoom-pct{font-family:var(--mono);font-size:11px;color:var(--muted);padding:0 4px}
+
+  /* 3 regions: 220 | flex | 248 */
+  .topo-main{display:flex;flex:1;min-height:0;overflow:hidden}
+  .topo-meta{width:220px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);
+    display:flex;flex-direction:column;overflow:hidden}
+  .topo-canvas{flex:1;min-width:0;position:relative;background:var(--bg);overflow:hidden}
+  .topo-inspector{width:248px;flex-shrink:0;background:var(--panel);border-left:1px solid var(--border);
+    display:flex;flex-direction:column;overflow:hidden}
+
+  .panel-hdr{display:flex;align-items:center;padding:8px 12px;border-bottom:1px solid var(--border);flex-shrink:0}
+  .panel-title{font-family:var(--mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--text)}
+
+  .meta-fields{padding:10px 12px;overflow-y:auto;flex:1}
+  .field{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+  .field:first-child{margin-top:0}
+  .field-row{display:flex;gap:8px}
+  .field-row .field{flex:1}
+  .label{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .label .ca{color:var(--glow);font-weight:600}
+  .label .cb{color:var(--warning);font-weight:600}
+  .label .cb2{color:var(--primary);font-weight:600}
+  .input{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);
+    font-family:var(--mono);font-size:12px;padding:7px 10px;width:100%}
+  .input.sm{padding:5px 8px;font-size:11px}
+  select.input{cursor:pointer}
+
+  .gen-rules{margin-top:14px;background:rgba(5,150,105,.05);border:1px solid rgba(5,150,105,.22);border-radius:6px;padding:10px}
+  .gen-title{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--glow);margin-bottom:6px}
+  .btn{font-family:var(--sans);font-size:12px;padding:7px 10px;border:1px solid var(--border);background:var(--card);
+    color:var(--text);border-radius:var(--radius);cursor:pointer;width:100%}
+  .btn.sm{font-size:11px;padding:6px 8px}
+  .btn.gen{border-color:rgba(5,150,105,.4);color:var(--glow);margin-top:8px}
+  .btn.danger{border-color:rgba(220,38,38,.35);color:var(--danger)}
+  .btn.accent{border-color:rgba(2,132,199,.4);color:var(--accent)}
+
+  /* canvas hint pill */
+  .canvas-hint{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);font-family:var(--mono);
+    font-size:10px;color:var(--muted);background:rgba(255,255,255,.85);padding:3px 12px;border-radius:10px;
+    border:1px solid var(--border);white-space:nowrap}
+  .pick-hint{position:absolute;top:10px;left:50%;transform:translateX(-50%);font-family:var(--mono);font-size:11px;
+    color:#fff;background:var(--primary);padding:4px 12px;border-radius:6px;white-space:nowrap}
+
+  /* inspector */
+  .insp-hdr{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);flex-shrink:0}
+  .insp-badge{font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;
+    padding:2px 6px;border-radius:3px;background:rgba(37,99,235,.1);color:var(--primary);border:1px solid rgba(37,99,235,.3)}
+  .insp-badge.cyan{background:rgba(2,132,199,.1);color:var(--accent);border-color:rgba(2,132,199,.3)}
+  .insp-badge.green{background:rgba(5,150,105,.12);color:var(--glow);border-color:rgba(5,150,105,.35)}
+  .insp-title{font-family:var(--mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--text);flex:1}
+  .insp-fields{padding:10px 12px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:8px}
+  .insp-actions{padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:6px;flex-shrink:0}
+  .insp-actions .btn{flex:1}
+  .relay-btn{width:100%;text-align:left;font-family:var(--mono);font-size:12px;padding:7px 10px;border:1px solid var(--border);
+    background:var(--card);border-radius:var(--radius);cursor:pointer}
+  .relay-btn.a{border-color:var(--glow);color:var(--glow)}
+  .relay-btn.b{border-color:var(--accent);color:var(--accent)}
+  .relay-btn.b2{border-color:var(--primary);color:var(--primary)}
+  .row2{display:flex;gap:6px}
+  .note{margin:2px 0;padding:6px 8px;border-radius:4px;font-size:11px;line-height:1.45}
+  .note.warn{background:rgba(217,119,6,.12);border:1px solid rgba(217,119,6,.4);color:#b45309}
+  .note.info{background:rgba(2,132,199,.12);border:1px solid rgba(2,132,199,.4);color:#0369a1}
+
+  /* validate mode segment editor */
+  .seg{border-radius:6px;padding:8px 10px}
+  .seg.exc{background:rgba(37,99,235,.07);border:1px solid rgba(37,99,235,.22)}
+  .seg.meas{background:rgba(5,150,105,.07);border:1px solid rgba(5,150,105,.22)}
+  .seg-hdr{display:flex;align-items:center;gap:6px;margin-bottom:7px}
+  .seg-badge{font-family:var(--mono);font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;text-transform:uppercase;letter-spacing:.08em}
+  .seg-badge.exc{background:rgba(37,99,235,.12);color:var(--primary);border:1px solid rgba(37,99,235,.35)}
+  .seg-badge.meas{background:rgba(5,150,105,.12);color:var(--glow);border:1px solid rgba(5,150,105,.35)}
+  .seg-title{flex:1;font-family:var(--mono);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+  .nodes{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+  .node-badge{flex:1;font-family:var(--mono);font-size:12px;background:var(--card);border:1px solid var(--border);
+    padding:4px 8px;border-radius:4px;text-align:center}
+  .node-badge.exc{border-color:rgba(37,99,235,.4);color:var(--primary)}
+  .node-badge.meas{border-color:rgba(5,150,105,.4);color:var(--glow)}
+  .sep{font-family:var(--mono);color:var(--muted)}
+  .ratio-row{display:flex;justify-content:center;margin:4px 0}
+  .ratio{font-family:var(--mono);font-size:11px;color:var(--glow);background:rgba(5,150,105,.08);
+    border:1px solid rgba(5,150,105,.22);padding:3px 10px;border-radius:4px}
+
+  .exc-card{background:rgba(37,99,235,.07);border:1px solid rgba(37,99,235,.3);border-radius:6px;padding:8px 10px;margin-bottom:10px}
+  .exc-hdr{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+  .exc-title{flex:1;font-family:var(--mono);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--primary)}
+  .exc-disp{font-family:var(--mono);font-size:11px;color:var(--primary)}
+  .sub-hdr{display:flex;align-items:center;justify-content:space-between;font-family:var(--mono);font-size:10px;
+    font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text);margin-bottom:8px}
+  .sub-count{font-weight:600;color:var(--accent);background:rgba(2,132,199,.1);border:1px solid rgba(2,132,199,.25);
+    border-radius:10px;padding:1px 7px}
+  .rule-item{display:flex;align-items:center;gap:6px;padding:6px 8px 6px 10px;background:var(--card);border:1px solid var(--border);
+    border-left:3px solid transparent;border-radius:4px;font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:4px}
+  .rule-item.active{border-left-color:var(--accent);background:rgba(2,132,199,.07);color:var(--accent)}
+  .rule-item .path{flex:1}
+  .rule-item .v{color:var(--accent);font-weight:600}
+  .rule-item .off{color:var(--warning);font-size:9px;font-weight:700;text-transform:uppercase}
+  .rules-scroll{flex:1;overflow-y:auto;padding:10px 12px 12px;border-top:1px solid var(--border);display:flex;flex-direction:column}
+</style>
+</head>
+<body>
+
+<div class="doc-note">
+  <b>Static visual mockup — Transformer Editor.</b> This is a non-interactive reference for how the
+  editor should look. Two screens are shown: <b>① Topology mode</b> (build the transformer, a winding
+  selected) and <b>② Validate mode</b> (make segment-pair rules, a rule selected). Layout is fixed:
+  toolbar on top, <b>220 px</b> meta panel left, flexible canvas center, <b>248 px</b> inspector right.
+  Only the coil diagram is script-drawn; there is no app logic. Colors, fonts, spacing, and structure
+  are the target.
+</div>
+
+<!-- ══════════════════ SCREEN 1 — TOPOLOGY ══════════════════ -->
+<div class="screen-label">① Topology mode — a winding selected</div>
+<div class="editor">
+ <div class="topo-chrome">
+
+  <div class="topo-toolbar">
+   <span class="tb-section">Windings</span>
+   <button class="tb-btn primary-tb">+ Primary</button>
+   <button class="tb-btn secondary-tb">+ Secondary</button>
+   <span class="tb-sep"></span>
+   <span class="tb-section">Node</span>
+   <button class="tb-btn">+ Tap</button>
+   <span class="tb-sep"></span>
+   <button class="tb-btn danger-tb">✕ Delete</button>
+   <span class="tb-sep"></span>
+   <span class="tb-section">Mode</span>
+   <button class="tb-btn mode-tb active">⬡ Topology</button>
+   <button class="tb-btn mode-tb">⚡ Validate</button>
+   <span class="tb-sep"></span>
+   <span class="tb-section">View</span>
+   <button class="tb-btn icon-tb">＋</button>
+   <button class="tb-btn icon-tb">－</button>
+   <button class="tb-btn icon-tb">⊡</button>
+   <span class="tb-zoom-pct">100%</span>
+   <div style="flex:1"></div>
+   <button class="tb-btn">📂 Load</button>
+   <button class="tb-btn glow-tb">💾 Save</button>
+  </div>
+
+  <div class="topo-main">
+
+   <!-- meta -->
+   <aside class="topo-meta">
+    <div class="panel-hdr"><span class="panel-title">Transformer</span></div>
+    <div class="meta-fields">
+     <div class="field"><label class="label">Name</label><input class="input" value="Demo 230/115V"></div>
+     <div class="field"><label class="label">ID</label><input class="input" value="demo_230_115"></div>
+     <div class="field-row">
+      <div class="field"><label class="label">Power (VA)</label><input class="input" value="500"></div>
+      <div class="field"><label class="label">Freq (Hz)</label><input class="input" value="50"></div>
+     </div>
+     <div class="field"><label class="label">Notes</label><input class="input" value=""></div>
+     <div class="gen-rules">
+      <div class="gen-title">Generate Rules</div>
+      <div class="field"><label class="label">Energize Winding</label>
+        <select class="input sm"><option>P1</option></select></div>
+      <div class="field"><label class="label">Tolerance (%)</label><input class="input sm" value="5"></div>
+      <button class="btn sm gen">Generate Rules</button>
+     </div>
+    </div>
+   </aside>
+
+   <!-- canvas -->
+   <div class="topo-canvas">
+    <svg id="svg1" viewBox="0 0 640 460" width="100%" height="100%" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="canvas-hint">Click to select · Drag winding to reposition · Scroll/Alt+drag to zoom/pan</div>
+   </div>
+
+   <!-- inspector: winding -->
+   <aside class="topo-inspector">
+    <div class="insp-hdr"><span class="insp-badge cyan">Secondary</span><span class="insp-title">Winding</span></div>
+    <div class="insp-fields">
+     <div class="field"><label class="label">ID</label><input class="input" value="S1"></div>
+     <div class="field"><label class="label">Voltage (V)</label><input class="input" value="115"></div>
+     <div class="field">
+      <label class="label">Start node → <span class="ca">A1 (1–16)</span></label>
+      <div class="row2"><button class="relay-btn a" style="flex:1">1</button>
+        <select class="input" style="flex:0 0 88px"><option>Blue</option></select></div>
+     </div>
+     <div class="field">
+      <label class="label">End node → <span class="cb">A2 (17–32)</span></label>
+      <div class="row2"><button class="relay-btn b" style="flex:1">17</button>
+        <select class="input" style="flex:0 0 88px"><option>Red</option></select></div>
+     </div>
+    </div>
+    <div class="insp-actions">
+     <button class="btn sm">+ Add Tap</button>
+     <button class="btn sm danger">Delete</button>
+    </div>
+   </aside>
+
+  </div>
+ </div>
+</div>
+
+<!-- ══════════════════ SCREEN 2 — VALIDATE ══════════════════ -->
+<div class="screen-label">② Validate mode — a rule selected (segment editor above the rules list)</div>
+<div class="editor">
+ <div class="topo-chrome">
+
+  <div class="topo-toolbar">
+   <span class="tb-section">Windings</span>
+   <button class="tb-btn primary-tb">+ Primary</button>
+   <button class="tb-btn secondary-tb">+ Secondary</button>
+   <span class="tb-sep"></span>
+   <span class="tb-section">Node</span>
+   <button class="tb-btn" disabled>+ Tap</button>
+   <span class="tb-sep"></span>
+   <button class="tb-btn danger-tb" disabled>✕ Delete</button>
+   <span class="tb-sep"></span>
+   <span class="tb-section">Mode</span>
+   <button class="tb-btn mode-tb">⬡ Topology</button>
+   <button class="tb-btn mode-tb active">⚡ Validate</button>
+   <span class="tb-sep"></span>
+   <span class="tb-section">View</span>
+   <button class="tb-btn icon-tb">＋</button>
+   <button class="tb-btn icon-tb">－</button>
+   <button class="tb-btn icon-tb">⊡</button>
+   <span class="tb-zoom-pct">100%</span>
+   <div style="flex:1"></div>
+   <button class="tb-btn">📂 Load</button>
+   <button class="tb-btn glow-tb">💾 Save</button>
+  </div>
+
+  <div class="topo-main">
+
+   <aside class="topo-meta">
+    <div class="panel-hdr"><span class="panel-title">Transformer</span></div>
+    <div class="meta-fields">
+     <div class="field"><label class="label">Name</label><input class="input" value="Demo 230/115V"></div>
+     <div class="field"><label class="label">ID</label><input class="input" value="demo_230_115"></div>
+     <div class="field-row">
+      <div class="field"><label class="label">Power (VA)</label><input class="input" value="500"></div>
+      <div class="field"><label class="label">Freq (Hz)</label><input class="input" value="50"></div>
+     </div>
+     <div class="gen-rules">
+      <div class="gen-title">Generate Rules</div>
+      <div class="field"><label class="label">Energize Winding</label>
+        <select class="input sm"><option>P1</option></select></div>
+      <div class="field"><label class="label">Tolerance (%)</label><input class="input sm" value="5"></div>
+      <button class="btn sm gen">Generate Rules</button>
+     </div>
+    </div>
+   </aside>
+
+   <div class="topo-canvas">
+    <svg id="svg2" viewBox="0 0 640 460" width="100%" height="100%" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="pick-hint">③ MEASUREMENT — click node A&nbsp;&nbsp;[excitation: P1 ↔ P1:end]</div>
+    <div class="canvas-hint">Click a node to define the measurement segment · Esc cancels</div>
+   </div>
+
+   <!-- inspector: segment editor + rules list -->
+   <aside class="topo-inspector">
+    <div class="insp-hdr"><span class="insp-badge">Rule</span><span class="insp-title">Segment Rule</span>
+     <label style="display:flex;align-items:center;gap:4px"><input type="checkbox" checked><span class="label">On</span></label></div>
+
+    <div class="insp-fields" style="flex:0 0 auto">
+     <div class="seg exc">
+      <div class="seg-hdr"><span class="seg-badge exc">EXC</span><span class="seg-title">Excitation Segment</span>
+        <button class="btn sm" style="width:auto;padding:3px 8px">Change</button></div>
+      <div class="nodes"><span class="node-badge exc">P1</span><span class="sep">↔</span><span class="node-badge exc">P1:end</span></div>
+      <div class="field"><label class="label">Nominal Voltage (V)</label><input class="input sm" value="230"></div>
+     </div>
+     <div class="ratio-row"><span class="ratio">×0.50</span></div>
+     <div class="seg meas">
+      <div class="seg-hdr"><span class="seg-badge meas">MEAS</span><span class="seg-title">Measurement Segment</span>
+        <button class="btn sm" style="width:auto;padding:3px 8px">Change</button></div>
+      <div class="nodes"><span class="node-badge meas">S1</span><span class="sep">↔</span><span class="node-badge meas">S1:end</span></div>
+      <div class="field"><label class="label">Nominal Voltage (V)</label><input class="input sm" value="115"></div>
+     </div>
+     <div class="field-row">
+      <div class="field"><label class="label">Tolerance (%)</label><input class="input sm" value="5"></div>
+      <div class="field"><label class="label">Min Δ (V)</label><input class="input sm" value="0.1"></div>
+     </div>
+     <button class="btn sm danger">Delete Rule</button>
+    </div>
+
+    <!-- rules list fills remaining height -->
+    <div class="rules-scroll">
+     <div class="exc-card">
+      <div class="exc-hdr"><span class="seg-badge exc">EXC</span><span class="exc-title">Active Excitation</span>
+        <button class="btn sm" style="width:auto;padding:3px 8px">Set</button></div>
+      <div class="exc-disp">P1 ↔ P1:end&nbsp;&nbsp;230V</div>
+     </div>
+     <div class="sub-hdr"><span>Measurement Rules</span><span class="sub-count">4</span></div>
+     <div class="rule-item active"><span class="path">S1 ↔ S1:end</span><span class="v">115V</span></div>
+     <div class="rule-item"><span class="path">S2 ↔ S2:end</span><span class="v">24V</span></div>
+     <div class="rule-item"><span class="path">P1 ↔ P1:tap0</span><span class="v">200V</span></div>
+     <div class="rule-item"><span class="path">S1 ↔ S1:tap0</span><span class="v">60V</span><span class="off">off</span></div>
+     <button class="btn sm accent" style="margin-top:8px">+ Add Measurement</button>
+    </div>
+   </aside>
+
+  </div>
+ </div>
+</div>
+
+<script>
+// Draw a schematic transformer into an <svg>. Static — runs once, no interaction.
+const C = { core:'#1e2d4a', coilP:'#3a6aaa', coilS:'#2f7d5a', node:'#1a6fd4',
+            nodeEmpty:'#b8c8e0', navy:'#1a3d6e', blue:'#2563eb', red:'#dc2626',
+            green:'#16a34a', label:'#18243a', muted:'#5b6b8a', relay:'#0284c7' };
+const NS='http://www.w3.org/2000/svg';
+function el(n,a){const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);return e;}
+function txt(x,y,s,o){o=o||{};const t=el('text',{x,y,'font-family':"'IBM Plex Mono',monospace",
+  'font-size':o.size||11,fill:o.fill||C.label,'text-anchor':o.anchor||'start',
+  'font-weight':o.weight||'normal'});t.textContent=s;return t;}
+function coil(cx,y0,y1,amp,loops,dir){ // vertical sine coil, bulging by dir(-1 left / +1 right)
+  const pts=[];const steps=loops*28;
+  for(let i=0;i<=steps;i++){const t=i/steps;pts.push([cx+dir*amp*Math.sin(t*loops*2*Math.PI), y0+t*(y1-y0)]);}
+  return 'M'+pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' L');
+}
+function draw(svgId){
+  const s=document.getElementById(svgId);
+  // core
+  s.appendChild(el('rect',{x:296,y:80,width:48,height:300,rx:6,fill:C.core}));
+  s.appendChild(txt(320,398,'CORE',{anchor:'middle',fill:C.muted,size:9}));
+
+  // ── P1 (energizing) on the LEFT ──
+  const pX=232;
+  s.appendChild(el('path',{d:coil(pX,110,350,16,6,-1),stroke:C.coilP,'stroke-width':4,fill:'none','stroke-linecap':'round'}));
+  // leads to core (external mains → EN+/EN-), navy
+  s.appendChild(el('line',{x1:pX,y1:110,x2:296,y2:110,stroke:C.navy,'stroke-width':4,'stroke-linecap':'round'}));
+  s.appendChild(el('line',{x1:pX,y1:350,x2:296,y2:350,stroke:C.navy,'stroke-width':4,'stroke-linecap':'round'}));
+  s.appendChild(el('circle',{cx:pX,cy:110,r:7,fill:C.nodeEmpty,stroke:'#c0ccdd'}));
+  s.appendChild(el('circle',{cx:pX,cy:350,r:7,fill:C.nodeEmpty,stroke:'#c0ccdd'}));
+  s.appendChild(txt(268,106,'EN+',{fill:C.relay,weight:'bold'}));
+  s.appendChild(txt(268,362,'EN−',{fill:C.relay,weight:'bold'}));
+  s.appendChild(txt(250,100,'Navy',{fill:C.muted,size:9,anchor:'middle',weight:'bold'}));
+  // P1 tap (Group B relay 37), goes further left
+  s.appendChild(el('line',{x1:pX,y1:230,x2:180,y2:230,stroke:C.green,'stroke-width':2,'stroke-linecap':'round'}));
+  s.appendChild(el('circle',{cx:180,cy:230,r:5,fill:'#2a5a9a',stroke:'#4a6a9a'}));
+  s.appendChild(txt(174,226,'200V',{anchor:'end',fill:C.muted}));
+  s.appendChild(txt(174,240,'37',{anchor:'end',fill:C.relay,weight:'bold',size:10}));
+  s.appendChild(txt(206,232,'Green',{anchor:'middle',fill:C.muted,size:8,weight:'bold'}));
+  // id + voltage (inside, toward core)
+  s.appendChild(txt(258,224,'P1',{fill:C.label,size:13,weight:'bold'}));
+  s.appendChild(txt(258,238,'230V',{fill:C.muted,size:10}));
+
+  // ── S1 (secondary) on the RIGHT ──
+  const sX=408;
+  s.appendChild(el('path',{d:coil(sX,110,350,16,6,1),stroke:C.coilS,'stroke-width':4,fill:'none','stroke-linecap':'round'}));
+  s.appendChild(el('line',{x1:344,y1:110,x2:sX,y2:110,stroke:C.blue,'stroke-width':4,'stroke-linecap':'round'}));
+  s.appendChild(el('line',{x1:344,y1:350,x2:sX,y2:350,stroke:C.red,'stroke-width':4,'stroke-linecap':'round'}));
+  s.appendChild(el('circle',{cx:sX,cy:110,r:7,fill:C.node,stroke:'#c0ccdd'}));
+  s.appendChild(el('circle',{cx:sX,cy:350,r:7,fill:C.node,stroke:'#c0ccdd'}));
+  s.appendChild(txt(372,106,'1',{fill:C.relay,weight:'bold',size:11}));
+  s.appendChild(txt(372,362,'17',{fill:C.relay,weight:'bold',size:11}));
+  s.appendChild(txt(390,100,'Blue',{fill:C.muted,size:9,anchor:'middle',weight:'bold'}));
+  s.appendChild(txt(390,372,'Red',{fill:C.muted,size:9,anchor:'middle',weight:'bold'}));
+  s.appendChild(txt(360,224,'S1',{fill:C.label,size:13,weight:'bold',anchor:'end'}));
+  s.appendChild(txt(360,238,'115V',{fill:C.muted,size:10,anchor:'end'}));
+}
+draw('svg1'); draw('svg2');
+</script>
+</body>
+</html>

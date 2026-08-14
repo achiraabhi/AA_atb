@@ -14,6 +14,15 @@ from typing import Optional, List, Dict, Any
 from core.state_manager import TestSession, TestStepResult
 
 
+def _phase_label(phase_ok) -> str:
+    """Human label for the winding-polarity result in exports."""
+    if phase_ok is True:
+        return "IN-PHASE"
+    if phase_ok is False:
+        return "OUT-OF-PHASE"
+    return ""   # not checked (tap / energizing winding / board unavailable)
+
+
 class TestLogger:
     """Writes test results to CSV and JSON log files."""
 
@@ -81,7 +90,7 @@ class TestLogger:
             "timestamp", "transformer_id", "operator",
             "step", "from_winding", "to_winding",
             "measured_v", "expected_v", "tolerance_pct",
-            "deviation_pct", "result", "error",
+            "deviation_pct", "result", "phase", "error",
         ]
         with open(path, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -99,6 +108,7 @@ class TestLogger:
                     "tolerance_pct":  f"{r.tolerance_percent:.1f}",
                     "deviation_pct":  f"{r.deviation_pct:.2f}",
                     "result":         "PASS" if r.passed else "FAIL",
+                    "phase":          _phase_label(getattr(r, "phase_ok", None)),
                     "error":          r.error or "",
                 })
 
@@ -122,6 +132,7 @@ class TestLogger:
                     "tolerance_pct": r.tolerance_percent,
                     "deviation_pct": round(r.deviation_pct, 2),
                     "result":        "PASS" if r.passed else "FAIL",
+                    "phase":         _phase_label(getattr(r, "phase_ok", None)),
                     "timestamp":     datetime.fromtimestamp(r.timestamp).isoformat(),
                     "error":         r.error,
                 }

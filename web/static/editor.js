@@ -23,6 +23,10 @@ const EC = {
   nodePick: 'rgba(37,99,235,0.15)', nodePickStroke: '#2563eb',
 };
 
+// Wire-colour palette + helpers (wireColor/wireColorName/wireColorKind/
+// wireStroke/wireSwatchBg) are the single source of truth defined in canvas.js,
+// which loads before this file and shares global scope.
+
 class TopoEditor {
   constructor(containerId) {
     this._cid = containerId;
@@ -95,7 +99,10 @@ class TopoEditor {
     return this.config?.connection_style?.line_color || EC.leadIdle;
   }
 
-  // Direct wire-color update — mutates existing Konva objects, no rebuild.
+  // Wire-color update. Colours can be multi-stroke (Y/G stripe, White/Clear
+  // outline), so rather than mutate a single line we set the value on the config
+  // and rebuild the winding — the styled lead + colour-name label are redrawn
+  // correctly. Colour changes are one-per-pick (swatch picker), so this is cheap.
   // field: 'wire_color_start' | 'wire_color_end' for windings, 'wire_color' for taps.
   setLeadColor(field, color) {
     if (!this._sel || !this.config) return;
@@ -105,36 +112,14 @@ class TopoEditor {
       const w = this.config[side]?.[wIndex];
       if (!w) return;
       w[field] = color;
-
-      const leads = this._leads.get(`${side}-${wIndex}`);
-      if (leads) {
-        // Directly assign color to the relevant lead line(s)
-        if (field === 'wire_color_start' || field === 'wire_color') {
-          leads.lt.setAttr('stroke', color);
-          leads.lt.getLayer()?.draw();
-        }
-        if (field === 'wire_color_end' || field === 'wire_color') {
-          leads.lb.setAttr('stroke', color);
-          leads.lb.getLayer()?.draw();
-        }
-      }
-
     } else if (type === 'tap') {
       const tap = this.config[side]?.[wIndex]?.taps?.[tIndex];
       if (!tap) return;
       tap[field] = color;
-
-      const g = this._windLyr.findOne(`#winding-${side}-${wIndex}`);
-      if (g) {
-        const line = g.findOne(`.tap-line-${tIndex}`);
-        if (line) {
-          line.setAttr('stroke', color);
-          line.setAttr('strokeWidth', 2);
-          line.getLayer()?.draw();
-        }
-      }
+    } else {
+      return;
     }
-
+    this._rebuildWinding(side, wIndex);
     this._fire('change', this.config);
   }
 
@@ -368,6 +353,17 @@ class TopoEditor {
     this._fire('change', this.config);
   }
 
+  // Wire number shown on a winding's start/end lead. Pin == relay number, so it
+  // is derived from the relay live (updates on assignment). The energizing
+  // winding's two mains wires have no relay → EN+ / EN-. Returns '' when a normal
+  // winding node has no relay yet (nothing to number).
+  _wireNumber(winding, which) {
+    const isEnergizing = this.config?.auto_matrix?.energize_winding === winding.id;
+    if (isEnergizing) return which === 'start' ? 'EN+' : 'EN-';
+    const relay = which === 'start' ? winding.relay_a : winding.relay_b;
+    return relay != null ? `${relay}` : '';
+  }
+
   // ── layout ────────────────────────────────────────────────────────────────
 
   _L() {
@@ -592,13 +588,39 @@ class TopoEditor {
     g.add(new Konva.Text({ x: ilx, y: -9, text: winding.id, fontSize: 13, fontFamily: 'IBM Plex Mono, monospace', fill: isSel ? EC.labelSel : EC.labelNormal, width: ilw, align: 'center', name: 'wid-lbl' }));
     g.add(new Konva.Text({ x: ilx, y: 7, text: `${winding.voltage}V`, fontSize: 10, fontFamily: 'IBM Plex Mono, monospace', fill: EC.labelMuted, width: ilw, align: 'center' }));
 
-    if (winding.relay_a != null) {
-      const on = Boolean(this._relays[String(winding.relay_a)]);
-      g.add(new Konva.Text({ x: lx, y: -coilHalf - 14, text: `RL${winding.relay_a}`, fontSize: 9, fontFamily: 'IBM Plex Mono, monospace', fill: on ? EC.nodeActive : EC.relayLabel, width: lw, align: la, name: 'rl-a' }));
+    // Wire-colour names — printed INSIDE the winding, just under the start lead
+    // and just above the end lead. They live in the winding group, so they move
+    // with it on drag and are destroyed with it on rebuild (no ghost labels).
+    const wcw = 110;
+    const wcx = side === 'primary' ? 14 : -(14 + wcw);
+    const startColor = winding.wire_color_start || winding.wire_color || null;
+    const endColor   = winding.wire_color_end   || winding.wire_color || null;
+    g.add(new Konva.Text({
+      name: 'wire-color-start', text: wireColorName(startColor),
+      x: wcx, y: -coilHalf + 4, width: wcw, align: 'center',
+      fontSize: 9, fontFamily: 'IBM Plex Mono, monospace', fontStyle: 'bold',
+      fill: EC.labelNormal, listening: false,
+    }));
+    g.add(new Konva.Text({
+      name: 'wire-color-end', text: wireColorName(endColor),
+      x: wcx, y: coilHalf - 13, width: wcw, align: 'center',
+      fontSize: 9, fontFamily: 'IBM Plex Mono, monospace', fontStyle: 'bold',
+      fill: EC.labelNormal, listening: false,
+    }));
+
+    // Wire number = the node's relay number (pin == relay), derived live so it
+    // updates the moment a relay is (re)assigned. The energizing winding's mains
+    // wires carry no relay, so they read EN+ / EN- instead. Placed IN LINE with
+    // the lead (leads sit at y = ±coilHalf) and lit while the relay is energized.
+    const startTxt = this._wireNumber(winding, 'start');
+    const endTxt   = this._wireNumber(winding, 'end');
+    if (startTxt) {
+      const on = winding.relay_a != null && Boolean(this._relays[String(winding.relay_a)]);
+      g.add(new Konva.Text({ x: lx, y: -coilHalf - 6, text: startTxt, fontSize: 11, fontStyle: 'bold', fontFamily: 'IBM Plex Mono, monospace', fill: on ? EC.nodeActive : EC.relayLabel, width: lw, align: la, name: 'rl-a' }));
     }
-    if (winding.relay_b != null) {
-      const on = Boolean(this._relays[String(winding.relay_b)]);
-      g.add(new Konva.Text({ x: lx, y: coilHalf + 6, text: `RL${winding.relay_b}`, fontSize: 9, fontFamily: 'IBM Plex Mono, monospace', fill: on ? EC.nodeActive : EC.relayLabel, width: lw, align: la, name: 'rl-b' }));
+    if (endTxt) {
+      const on = winding.relay_b != null && Boolean(this._relays[String(winding.relay_b)]);
+      g.add(new Konva.Text({ x: lx, y: coilHalf - 6, text: endTxt, fontSize: 11, fontStyle: 'bold', fontFamily: 'IBM Plex Mono, monospace', fill: on ? EC.nodeActive : EC.relayLabel, width: lw, align: la, name: 'rl-b' }));
     }
 
     winding.taps.forEach((tap, ti) => this._addTap(g, tap, ti, winding.taps.length, coilHalf, side, wIndex));
@@ -634,8 +656,47 @@ class TopoEditor {
     const tapX = side === 'primary' ? -(18 + 10) : (18 + 10);
     const on = tap.relay_b != null && Boolean(this._relays[String(tap.relay_b)]);
 
-    const tapLineColor = tap.wire_color || (on ? 'rgba(2,132,199,0.6)' : 'rgba(42,90,154,0.35)');
-    g.add(new Konva.Line({ name: `tap-line-${ti}`, points: [0, tapY, tapX, tapY], stroke: tapLineColor, strokeWidth: tap.wire_color ? 2 : 1.5, lineCap: 'round' }));
+    // Tap connector — drawn like a main winding lead (same colour-kind treatment:
+    // Y/G stripe, White/Clear outline) but a touch thinner (3px vs the leads' 4px)
+    // so taps read as first-class wiring, not faint hairlines.
+    const tapPts = [0, tapY, tapX, tapY];
+    if (tap.wire_color) {
+      const s = wireStroke(tap.wire_color);
+      if (s.outline) g.add(new Konva.Line({ name: `tap-line-${ti}`, points: tapPts, stroke: s.outline, strokeWidth: 5, lineCap: 'round', listening: false }));
+      g.add(new Konva.Line({ points: tapPts, stroke: s.base, strokeWidth: s.thin ? 2 : 3, lineCap: 'round', listening: false }));
+      if (s.dash) g.add(new Konva.Line({ points: tapPts, stroke: s.dash, strokeWidth: 3, lineCap: 'round', dash: [6, 6], listening: false }));
+    } else {
+      const hint = on ? 'rgba(2,132,199,0.6)' : 'rgba(42,90,154,0.45)';
+      g.add(new Konva.Line({ name: `tap-line-${ti}`, points: tapPts, stroke: hint, strokeWidth: 2.5, lineCap: 'round', listening: false }));
+    }
+
+    // Everything about a tap sits IN LINE with the tap wire (y = tapY), laid out
+    // outward from the node:   ●——  [pin] [colour] [label]
+    const out = side === 'primary' ? -1 : 1;
+    const ta  = side === 'primary' ? 'right' : 'left';
+    // Column x for a run of `w`-wide fields starting `gap` px outboard of `from`.
+    const col = (from, gap, w) => (out < 0 ? from - gap - w : from + gap);
+
+    const pw = 26, cw = 46, lw2 = 58;
+    const px  = col(tapX, 5, pw);                      // pin  — nearest the node
+    const ccx = col(out < 0 ? px : px + pw, 5, cw);    // colour name
+    const tlx = col(out < 0 ? ccx : ccx + cw, 6, lw2); // tap label
+
+    // Wire number = the tap's relay number (pin == relay), derived live.
+    if (tap.relay_b != null) {
+      g.add(new Konva.Text({
+        x: px, y: tapY - 5, width: pw, align: ta, text: `${tap.relay_b}`,
+        fontSize: 10, fontStyle: 'bold', fontFamily: 'IBM Plex Mono, monospace',
+        fill: on ? EC.tapActive : EC.relayLabel, listening: false,
+      }));
+    }
+    // Colour name — same line as the tap.
+    g.add(new Konva.Text({
+      name: `tap-color-${ti}`, text: wireColorName(tap.wire_color),
+      x: ccx, y: tapY - 5, width: cw, align: ta,
+      fontSize: 8, fontFamily: 'IBM Plex Mono, monospace', fontStyle: 'bold',
+      fill: EC.labelNormal, listening: false,
+    }));
 
     const node = new Konva.Circle({
       x: tapX, y: tapY, radius: 5,
@@ -659,13 +720,9 @@ class TopoEditor {
     });
     g.add(node);
 
-    const lx = side === 'primary' ? -(18 + 55) : (18 + 16);
+    // Tap label — outermost on the tap's line (pin and colour sit inboard of it).
     const label = tap.label || `${tap.voltage}V`;
-    g.add(new Konva.Text({ x: lx, y: tapY - 5, text: label, fontSize: 9, fontFamily: 'IBM Plex Mono, monospace', fill: isSel ? EC.tapSel : (on ? EC.tapActive : EC.labelMuted) }));
-
-    if (tap.relay_b != null) {
-      g.add(new Konva.Text({ x: lx, y: tapY + 6, text: `RL${tap.relay_b}`, fontSize: 8, fontFamily: 'IBM Plex Mono, monospace', fill: EC.relayLabel }));
-    }
+    g.add(new Konva.Text({ x: tlx, y: tapY - 5, text: label, fontSize: 9, fontFamily: 'IBM Plex Mono, monospace', width: lw2, align: ta, fill: isSel ? EC.tapSel : (on ? EC.tapActive : EC.labelMuted) }));
 
     node.on('click tap', (e) => {
       if (this._mode === 'validate') {
@@ -690,19 +747,28 @@ class TopoEditor {
     const startColor = w.wire_color_start || w.wire_color || fallback;
     const endColor   = w.wire_color_end   || w.wire_color || fallback;
 
-    // Always use the wire's own color — selection is shown by coil glow + sel-bg rect
-    const lt = new Konva.Line({
-      points: [colX, cy - coilHalf, coreEx, cy - coilHalf],
-      stroke: onA ? EC.leadActive : startColor,
-      strokeWidth: 4, lineCap: 'round',
-    });
-    const lb = new Konva.Line({
-      points: [colX, cy + coilHalf, coreEx, cy + coilHalf],
-      stroke: onB ? EC.leadActive : endColor,
-      strokeWidth: 4, lineCap: 'round',
-    });
-    this._wireLyr.add(lt, lb);
-    this._leads.set(`${side}-${wIndex}`, { lt, lb, coilHalf });
+    // Styled leads (Y/G stripe, White/Clear outline). Selection is shown by the
+    // coil glow + sel-bg rect. NOTE: colour-name labels live inside the winding
+    // group (see _buildGroup) so they travel with it on drag.
+    const top = this._leadNodes([colX, cy - coilHalf, coreEx, cy - coilHalf], startColor, onA);
+    const bot = this._leadNodes([colX, cy + coilHalf, coreEx, cy + coilHalf], endColor, onB);
+    this._wireLyr.add(...top, ...bot);
+    this._leads.set(`${side}-${wIndex}`, { top, bot, coilHalf });
+  }
+
+  // Build the 1–3 Konva lines that render one lead honouring its colour kind:
+  //   solid  → one line;   Y/G → green base + yellow dashed overlay;
+  //   White  → grey underlay + white line;   Clear → grey underlay + pale thin line.
+  _leadNodes(points, hex, active) {
+    if (active) {
+      return [new Konva.Line({ points, stroke: EC.leadActive, strokeWidth: 4, lineCap: 'round' })];
+    }
+    const s = wireStroke(hex || EC.leadIdle);
+    const nodes = [];
+    if (s.outline) nodes.push(new Konva.Line({ points, stroke: s.outline, strokeWidth: 6, lineCap: 'round', listening: false }));
+    nodes.push(new Konva.Line({ points, stroke: s.base, strokeWidth: s.thin ? 3 : 4, lineCap: 'round' }));
+    if (s.dash) nodes.push(new Konva.Line({ points, stroke: s.dash, strokeWidth: 4, lineCap: 'round', dash: [6, 6], listening: false }));
+    return nodes;
   }
 
   _updateLeads(key, cy, coilHalf, side) {
@@ -711,8 +777,10 @@ class TopoEditor {
     const L = this._L();
     const colX = side === 'primary' ? L.primaryX : L.secondaryX;
     const coreEx = side === 'primary' ? L.coreX : L.coreX + L.coreW;
-    leads.lt.points([colX, cy - coilHalf, coreEx, cy - coilHalf]);
-    leads.lb.points([colX, cy + coilHalf, coreEx, cy + coilHalf]);
+    const topPts = [colX, cy - coilHalf, coreEx, cy - coilHalf];
+    const botPts = [colX, cy + coilHalf, coreEx, cy + coilHalf];
+    (leads.top || []).forEach(n => n.points(topPts));
+    (leads.bot || []).forEach(n => n.points(botPts));
     this._wireLyr.batchDraw();
   }
 
@@ -1201,7 +1269,7 @@ class TopoEditor {
 
     this._windLyr.findOne(`#winding-${side}-${wIndex}`)?.destroy();
     const old = this._leads.get(key);
-    if (old) { old.lt.destroy(); old.lb.destroy(); this._leads.delete(key); }
+    if (old) { (old.top || []).forEach(n => n.destroy()); (old.bot || []).forEach(n => n.destroy()); this._leads.delete(key); }
 
     this._windLyr.add(this._buildGroup(w, side, wIndex, cy, coilHalf));
     this._buildLeads(w, side, wIndex, cy, coilHalf);

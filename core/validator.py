@@ -29,9 +29,10 @@ class TransformerValidator:
 
     def validate(self, data: dict) -> List[ValidationIssue]:
         issues: List[ValidationIssue] = []
-        # The energizing winding's terminals/taps are not routed through the
-        # relay matrix (permanent wiring; excitation is external), so its taps
-        # are exempt from the "tap needs a relay" check.
+        # Only the energizing winding's MAIN WIRES are external (permanent
+        # wiring; mains applied externally, start hard-wired to the + bus), so
+        # they must carry no relays. Its TAPS are routed through the matrix like
+        # any other tap and each needs a B relay (RL17-32).
         ew_id = (data.get("auto_matrix") or {}).get("energize_winding")
         self._check_basic_info(data, issues)
         self._check_windings(data.get("primary",  []), "primary",  issues, ew_id)
@@ -86,6 +87,18 @@ class TransformerValidator:
                 issues.append(ValidationIssue(Severity.ERROR, f"{side}.{wid}.pins",
                                                f"{wid}: start_pin and end_pin must differ"))
 
+            # The energizing winding's MAIN WIRES are external: they carry mains,
+            # are never switched, and its start is hard-wired to the + bus. So
+            # they must carry no relays. (Its TAPS still take a B relay each.)
+            if is_energizing:
+                for fld, grp in (("relay_a", "RL1-16"), ("relay_b", "RL17-32")):
+                    if w.get(fld) is not None:
+                        issues.append(ValidationIssue(
+                            Severity.WARNING, f"{side}.{wid}.{fld}",
+                            f"{wid} is the energizing winding: its main wires are "
+                            f"external and must not have {fld} ({grp}) assigned — "
+                            f"only its taps take relays"))
+
             taps = w.get("taps", [])
             tap_pins = []
             for ti, tap in enumerate(taps):
@@ -101,14 +114,30 @@ class TransformerValidator:
                                                    f"{side}.{wid}.tap[{ti}].voltage",
                                                    f"{wid} tap {ti}: voltage not specified"))
 
-                # A measurement tap takes a single A2-side relay (RL17-32),
-                # measured start→tap. The energizing winding's taps are not
-                # routed through the matrix (excitation is external), so they
-                # are exempt from this check.
-                if tap.get("relay_b") is None and not is_energizing:
+                # Every tap takes a single relay, but from a DIFFERENT group
+                # depending on the winding:
+                #   • normal winding tap     → A2 group  (RL17-32)
+                #   • energizing winding tap → Group B   (RL37-40)
+                # (Only the energizing winding's MAIN WIRES are external; its
+                #  taps are still measured.)
+                rb = tap.get("relay_b")
+                lo, hi, grp = ((37, 40, "Group B") if is_energizing
+                               else (17, 32, "A2"))
+                if rb is None:
                     issues.append(ValidationIssue(Severity.WARNING,
                                                    f"{side}.{wid}.tap[{ti}].relay_b",
-                                                   f"{wid} tap {ti}: no relay assigned (needs one RL17-32)"))
+                                                   f"{wid} tap {ti}: no relay assigned "
+                                                   f"(needs one RL{lo}-{hi}, {grp})"))
+                elif not (lo <= rb <= hi):
+                    issues.append(ValidationIssue(Severity.ERROR,
+                                                   f"{side}.{wid}.tap[{ti}].relay_b",
+                                                   f"{wid} tap {ti}: RL{rb} is outside {grp} "
+                                                   f"(RL{lo}-{hi}). "
+                                                   + (f"{wid} is the energizing winding — its taps "
+                                                      f"must use Group B (RL37-40), not the A2 group."
+                                                      if is_energizing else
+                                                      f"Only the energizing winding's taps use "
+                                                      f"Group B (RL37-40).")))
                 if tap.get("relay_a") is not None:
                     issues.append(ValidationIssue(Severity.WARNING,
                                                    f"{side}.{wid}.tap[{ti}].relay_a",
@@ -148,11 +177,11 @@ class TransformerValidator:
                     if node and ":tap" in str(node):
                         measured.add(str(node))
 
+        # Every relayed tap must be covered — including the energizing winding's
+        # taps, which ARE routed through the matrix (only its main wires aren't).
         for side in ("primary", "secondary"):
             for w in data.get(side) or []:
                 wid = str(w.get("id", ""))
-                if wid == ew_id:
-                    continue   # energizing winding taps aren't measured via the matrix
                 for ti, tap in enumerate(w.get("taps") or []):
                     if tap.get("relay_b") is None:
                         continue   # unrelayed tap — covered by the relay-assignment check
@@ -163,14 +192,17 @@ class TransformerValidator:
                                                        f"measurement rule — regenerate rules so it is tested"))
 
     def _check_pin_uniqueness(self, data: dict, issues: List[ValidationIssue]) -> None:
-        all_pins: List[int] = []
+        # A pin is normally an int (== its relay number), but the energizing
+        # winding's two mains wires carry no relay and are labelled "EN+"/"EN-".
+        # Compare as strings so both kinds coexist.
+        all_pins: List[str] = []
         for w in data.get("primary", []) + data.get("secondary", []):
             for p in (w.get("start_pin"), w.get("end_pin")):
                 if p is not None:
-                    all_pins.append(int(p))
+                    all_pins.append(str(p))
             for tap in w.get("taps", []):
                 if tap.get("pin") is not None:
-                    all_pins.append(int(tap["pin"]))
+                    all_pins.append(str(tap["pin"]))
 
         seen: set = set()
         for pin in all_pins:
